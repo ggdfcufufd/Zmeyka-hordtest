@@ -18,10 +18,7 @@
             margin: 0;
         }
 
-        h1 {
-            margin-bottom: 5px;
-            color: #222;
-        }
+        h1 { margin-bottom: 5px; color: #222; }
 
         .ap-counter {
             font-size: 20px;
@@ -79,7 +76,7 @@
             box-shadow: 0 0 10px rgba(255, 51, 0, 0.3);
         }
 
-        /* СЕКРЕТНАЯ АДМИН-ПАНЕЛЬ */
+        /* АДМИН-ПАНЕЛЬ Скрыта по умолчанию */
         .admin-panel {
             display: none;
             margin-top: 20px;
@@ -93,10 +90,7 @@
             text-align: center;
         }
 
-        .admin-panel h3 {
-            margin-top: 0;
-            color: #00d2ff;
-        }
+        .admin-panel h3 { margin-top: 0; color: #00d2ff; }
 
         .length-buttons {
             display: grid;
@@ -120,14 +114,8 @@
             cursor: pointer;
             border-radius: 4px;
         }
-        .btn-admin:hover, .btn-admin.active {
-            background-color: #007bff;
-            border-color: #007bff;
-        }
-        .btn-admin.active-mut {
-            background-color: #ff3300;
-            border-color: #ff3300;
-        }
+        .btn-admin:hover { background-color: #007bff; border-color: #007bff; }
+        .btn-admin.active-mut { background-color: #ff3300; border-color: #ff3300; }
 
         .menu-row {
             margin-top: 15px;
@@ -150,11 +138,7 @@
         button.main-btn:hover { background-color: #0056b3; }
         button:disabled { background-color: #cccccc; cursor: not-allowed; }
 
-        .footer {
-            margin-top: 25px;
-            font-size: 12px;
-            color: #999;
-        }
+        .footer { margin-top: 25px; font-size: 12px; color: #999; }
     </style>
 </head>
 <body>
@@ -167,7 +151,7 @@
         Онлайн: нажмите «Играть онлайн» или создайте комнату для друга.
     </div>
 
-    <!-- ЭКРАН 🌳 ДРЕВО -->
+    <!-- ЭКРАН ДРЕВА -->
     <div id="treeScreen" class="tree-screen">
         <h3>🌳 Древо мутаций</h3>
         <div id="node-adrenaline" class="tree-node">🔴 Мутация: adrenaline (x1.4 Скорость)</div>
@@ -177,12 +161,11 @@
 
     <canvas id="gameCanvas" width="600" height="400"></canvas>
 
-    <div id="codeDisplay" style="display:none; font-family:monospace; margin-top:10px;"></div>
+    <div id="codeDisplay" style="display:none; font-family:monospace; margin-top:10px; background: #e2e8f0; padding: 5px 10px; border-radius: 4px;"></div>
 
     <!-- АДМИН-ПАНЕЛЬ -->
     <div id="adminPanel" class="admin-panel">
         <h3>🛠️ Панель Администратора (Код: A1707GH)</h3>
-        
         <p>Выдать длину змейки:</p>
         <div class="length-buttons">
             <button class="btn-admin" onclick="setSnakeLength(1)">1</button>
@@ -198,7 +181,6 @@
             <button class="btn-admin" onclick="setSnakeLength(512)">512</button>
             <button class="btn-admin" onclick="setSnakeLength(1024)">1024</button>
         </div>
-
         <p>Управление мутациями древа:</p>
         <div class="mutation-admin-zone">
             <button id="adm-adrenaline" class="btn-admin" onclick="adminToggleAdrenaline()">Выдать adrenaline</button>
@@ -217,9 +199,7 @@
         <button class="main-btn" onclick="resetGame()">Старт заново</button>
     </div>
 
-    <div class="footer">
-        🌳 Древо | Старт | Выйти
-    </div>
+    <div class="footer">🌳 Древо | Старт | Выйти</div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
@@ -234,7 +214,7 @@
         let nextDir = 'RIGHT';
 
         let gameInterval = null;
-        const BASE_SPEED = 150; // Базовая скорость (миллисекунды)
+        const BASE_SPEED = 150;
         let isMultiplayer = false;
         let isHost = false;
 
@@ -242,7 +222,6 @@
         let conn = null;
         let myRoomId = '';
 
-        // Состояние админки и мутации
         let apPoints = 0;
         let inputSecretCode = '';
         const SECRET_CODE = 'A1707GH';
@@ -259,7 +238,7 @@
                     document.getElementById('adminPanel').style.display = 'block';
                     apPoints += 500;
                     updateAPDisplay();
-                    alert('Режим разработчика активирован. Единственная мутация: adrenaline.');
+                    alert('Админ-панель активирована!');
                 }
             }
         });
@@ -268,7 +247,6 @@
             document.getElementById('apValue').innerText = apPoints;
         }
 
-        // Включение/выключение adrenaline
         function adminToggleAdrenaline() {
             adrenalineActive = !adrenalineActive;
             apPoints += 100;
@@ -287,10 +265,9 @@
                 btn.innerText = 'Выдать adrenaline';
             }
 
-            // Перезапускаем игровой таймер с новой скоростью
+            // Перезапуск цикла игры для мгновенного изменения скорости
             if (gameInterval) {
                 clearInterval(gameInterval);
-                // Скорость х1.4 означает, что задержка становится меньше: BASE_SPEED / 1.4
                 const currentSpeed = adrenalineActive ? (BASE_SPEED / 1.4) : BASE_SPEED;
                 gameInterval = setInterval(updateLogic, currentSpeed);
             }
@@ -302,23 +279,26 @@
             for (let i = 0; i < targetLength; i++) {
                 newSnake.push({ x: head.x - (i * cellSize), y: head.y });
             }
-mySnake = newSnake;
-apPoints += 50;
-updateAPDisplay();
-draw();
-}
-function toggleTreeScreen() {
-const screen = document.getElementById('treeScreen');
-screen.style.display = screen.style.display === 'block' ? 'none' : 'block';
-}
-function draw() {
+            mySnake = newSnake;
+            apPoints += 50;
+            updateAPDisplay();
+            draw();
+        }
+
+        function toggleTreeScreen() {
+            const screen = document.getElementById('treeScreen');
+            screen.style.display = screen.style.display === 'block' ? 'none' : 'block';
+        }
+
+        function draw() {
 ctx.clearRect(0, 0, canvas.width, canvas.height);
 // Яблоко
 ctx.fillStyle = '#FF9800';
 ctx.fillRect(apple.x, apple.y, cellSize - 1, cellSize - 1);
-// Моя змейка (меняет цвет на агрессивный красный/оранжевый при адреналине)
+// Игрок
 ctx.fillStyle = adrenalineActive ? '#ff3300' : '#4CAF50';
 mySnake.forEach(part => ctx.fillRect(part.x, part.y, cellSize - 1, cellSize - 1));
+// Враг
 if (isMultiplayer) {
 ctx.fillStyle = '#f44336';
 enemySnake.forEach(part => ctx.fillRect(part.x, part.y, cellSize - 1, cellSize - 1));
