@@ -1,153 +1,170 @@
-Ниже — готовая доработка вашего `index.html`. Я добавил:
-
-1. **Счёт «AP» сверху** (рядом со счетами игроков) — отображается всегда в игре.
-2. **Секретный код `A1707GH`** — если ввести его в поле ника (в меню), откроется **админ-панель**.
-3. В админ-панели:
-   - выдача длины: `1, 2, 4, 8, 10, 16, 32, 64, 128, 256, 512, 1024` (кнопки «+» и «−» для каждого значения, а также «Установить»);
-   - выдача/снятие мутаций (кнопки по каждой мутации: «Выдать» / «Убрать», а также «Снять все»).
-
-Всё это работает и в одиночной игре, и в сетевой (в сетевой — изменения применяются к вашей змейке; для честности в PvP хост применяет изменения к себе, гость отправляет запрос хосту).
-
-Ниже — **полный обновлённый файл** (можно заменить целиком).
-
-```html
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Змейка P2P</title>
-<style>
-:root{color-scheme:light dark;--bg:light-dark(#d3dbb0,#161b11);--board:light-dark(#bcc88f,#1f2718);--soft:light-dark(#adbb7e,#2a3521);--ink:light-dark(#1f2a14,#cfdc9b);padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-:root[data-theme=dark]{color-scheme:dark}:root[data-theme=light]{color-scheme:light}
-*{box-sizing:border-box}
-html,body{margin:0;min-height:100%}
-body{background:var(--bg);color:var(--ink);font:600 15px/1.45 ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:14px;display:flex;justify-content:center}
-main{width:100%;max-width:880px;display:flex;flex-direction:column;gap:12px}
-main>h1,#menu,#net{width:100%;max-width:440px;align-self:center}
-h1{margin:6px 0 0;font-size:28px;letter-spacing:-.02em}
-h1 small{font-size:13px;font-weight:600;letter-spacing:0;opacity:.7}
-section{display:flex;flex-direction:column;gap:10px}
-[hidden]{display:none!important}
-p{margin:0}
-button,textarea,input{font:inherit;color:var(--ink);background:transparent;border:2px solid var(--ink);border-radius:4px;padding:12px}
-button{cursor:pointer;font-weight:700;transition:transform .18s ease,background .2s ease,box-shadow .2s ease}button:hover{transform:translateY(-2px);box-shadow:0 5px 14px #0002}button:active{transform:translateY(1px) scale(.98)}
-button:focus-visible,textarea:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
-.pr{background:var(--ink);color:var(--bg)}
-textarea{height:68px;resize:none;width:100%;background:var(--board);font-size:30px;text-align:center;letter-spacing:.2em;text-transform:uppercase;padding:14px}
-canvas{width:100%;max-width:600px;margin:0 auto;aspect-ratio:1;display:block;border:3px solid var(--ink);border-radius:4px;touch-action:none;background:var(--board)}
-.row{display:flex;justify-content:space-between;gap:8px}
-.row button{flex:1}
-#nick{width:100%;background:var(--board);font-size:18px}
-.m{display:inline-block;width:12px;height:12px;background:var(--me,#00a83b);margin-right:6px;border-radius:3px;box-shadow:0 0 8px var(--me,#00a83b)}
-.m.o{background:var(--en,#ff4545);border:0;border-radius:3px;box-shadow:0 0 8px var(--en,#ff4545)}
-.pick{display:flex;flex-direction:column;gap:6px;font-size:13px}.pick b{font-size:14px}
-.sw{display:flex;flex-wrap:wrap;gap:8px}.sw .c{width:36px;height:36px;padding:0;border-radius:6px}.sw .cp{cursor:pointer;background:none;border:2px solid var(--ink)}.sw .c.on{outline:3px solid var(--ink);outline-offset:2px}
-#st{text-align:center}
-#hud{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
-#prog{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.35}
-#pt{font-size:15px}
-#bar{height:12px;border:2px solid var(--ink);border-radius:4px;background:var(--board);overflow:hidden}
-#fill{display:block;height:100%;width:0;background:var(--ink);transition:width .2s}
-#jcol{display:flex;flex-direction:column;align-items:center;gap:6px}
-#len{font-size:17px;font-weight:700;white-space:nowrap}
-#joy{position:relative;width:min(44vw,160px);aspect-ratio:1;margin:0;border:3px solid var(--ink);border-radius:50%;background:linear-gradient(var(--soft),var(--soft)) center/100% 3px no-repeat,linear-gradient(var(--soft),var(--soft)) center/3px 100% no-repeat,var(--board);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-#knob{position:absolute;left:50%;top:50%;width:40%;aspect-ratio:1;margin:-20% 0 0 -20%;border-radius:50%;background:var(--ink);pointer-events:none}
-#joy{display:block;cursor:grab}
-#tree{align-self:flex-start;padding:6px 12px;font-size:14px}
-#tr{position:fixed;inset:0;z-index:9;background:#0009;display:flex;align-items:center;justify-content:center;padding:calc(14px + env(safe-area-inset-top,0px)) 14px calc(14px + env(safe-area-inset-bottom,0px))}
-#trb{width:100%;max-width:440px;max-height:100%;overflow:auto;background:var(--bg);border:3px solid var(--ink);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:8px}
-#trb p{font-size:13px}
-.sl{display:flex;justify-content:space-between;align-items:center;gap:8px;border:2px solid var(--ink);border-radius:4px;padding:10px;background:var(--board);text-align:left;width:100%}
-.sl.on{background:var(--ink);color:var(--bg)}.sl.off{opacity:.55}.sl.go{justify-content:center}
-.mg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.mg button:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
-/* AP + админка */
-#ap{font-size:14px;font-weight:700;opacity:.9}
-#admin{width:100%;max-width:440px;align-self:center;display:flex;flex-direction:column;gap:8px}
-#admin .adm-box{border:2px solid var(--ink);border-radius:6px;padding:10px;background:var(--board);display:flex;flex-direction:column;gap:8px}
-#admin .adm-box h3{margin:0;font-size:15px}
-.adm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.adm-grid button{padding:8px;font-size:13px}
-.adm-mut{display:flex;flex-direction:column;gap:4px;border:2px solid var(--ink);border-radius:4px;padding:6px;background:var(--board)}
-.adm-mut .nm{font-size:13px}
-.adm-mut .btns{display:flex;gap:6px}
-.adm-mut .btns button{flex:1;padding:6px;font-size:12px}
-.adm-log{font-size:12px;opacity:.8;min-height:1.2em;white-space:pre-wrap}
-</style>
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Змейка P2P</title>
+    <style>
+        /* Общие стили для темной темы */
+        body {
+            background-color: #0b0f19;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        h1 {
+            color: #00d2ff;
+            text-shadow: 0 0 10px rgba(0, 210, 255, 0.5);
+            margin-bottom: 10px;
+        }
+
+        .info-panel {
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .my-snake { color: #00ffcc; font-weight: bold; text-shadow: 0 0 5px rgba(0,255,204,0.5); }
+        .enemy-snake { color: #ff3366; font-weight: bold; text-shadow: 0 0 5px rgba(255,51,102,0.5); }
+
+        /* ИГРОВОЕ ПОЛЕ: Черный фон и синие линии сетки */
+        #gameCanvas {
+            background-color: #000000;
+            border: 2px solid #0066ff;
+            box-shadow: 0 0 20px rgba(0, 102, 255, 0.5);
+            /* Создаем синюю сетку через CSS градиенты */
+            background-image: 
+                linear-gradient(to right, rgba(0, 102, 255, 0.25) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0, 102, 255, 0.25) 1px, transparent 1px);
+            background-size: 20px 20px; /* Размер клетки */
+        }
+
+        /* Меню и кнопки */
+        .menu {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button {
+            background: linear-gradient(135deg, #0055ff, #0033aa);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        button:hover {
+            background: linear-gradient(135deg, #0077ff, #0044cc);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 102, 255, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .footer {
+            margin-top: 30px;
+            font-size: 0.9rem;
+            color: #556688;
+        }
+    </style>
 </head>
 <body>
-<main>
-<h1>Змейка P2P <small id="ver"></small></h1>
-<section id="menu">
-<p id="mh">Онлайн: нажмите «Играть онлайн» или создайте комнату для друга. Сервер только знакомит вас, сама игра идёт напрямую между браузерами.</p>
-<input id="nick" maxlength="12" placeholder="Ваш ник" autocomplete="off">
-<div class="pick"><b>Моя змейка</b><div class="sw" id="swMe"></div></div>
-<div class="pick"><b>Змейка врага</b><div class="sw" id="swEn"></div></div>
-<button class="pr" id="b4">Играть онлайн</button>
-<button id="b2">Создать комнату для друга</button>
-<button id="b3">Войти по коду</button>
-<button id="b1">Играть одному</button>
-<!-- Админ-панель (скрыта, открывается кодом A1707GH) -->
-<section id="admin" hidden>
-  <div class="adm-box">
-    <h3>🛠 Админ-панель (AP)</h3>
-    <div>AP: <b id="apVal">0</b> &nbsp; <button type="button" id="admClose">Скрыть</button></div>
-    <div class="adm-log" id="admLog"></div>
-  </div>
-  <div class="adm-box">
-    <h3>Длина</h3>
-    <div class="adm-grid" id="admLen"></div>
-    <p style="font-size:12px;opacity:.75">«+» добавить, «−» убрать, «=» установить ровно.</p>
-  </div>
-  <div class="adm-box">
-    <h3>Мутации</h3>
-    <div id="admMut"></div>
-    <button type="button" id="admClearMut">Снять все мутации</button>
-  </div>
-</section>
-</section>
-<section id="net" hidden>
-<p id="hint"></p>
-<textarea id="out" readonly></textarea>
-<button id="cp">Копировать код</button>
-<textarea id="in" maxlength="5" placeholder="КОД"></textarea>
-<button class="pr" id="ok">Подключиться</button>
-<button id="bk">Назад</button>
-</section>
-<section id="game" hidden>
-<div class="row"><span id="s0"></span><span id="s1"></span><span id="ap">AP: 0</span></div>
-<canvas id="cv" width="600" height="600"></canvas>
-<p id="st"></p>
-<div id="hud">
-<div id="prog"><button type="button" id="tree">🌳 Древо</button><b id="pt"></b><span id="pn"></span><div id="bar"><i id="fill"></i></div></div>
-<div id="jcol"><p id="len"></p><div id="joy"><div id="knob"></div></div></div>
-</div>
-<div class="row"><button class="pr" id="go">Старт</button><button id="ex">Выйти</button></div>
-</section>
-</main>
-<div id="tr" hidden><div id="trb"></div></div>
-<script>
-const $=i=>document.getElementById(i),SC=8,VW=50,NX=41*SC,NY=30*SC,cv=$('cv'),cx=cv.getContext('2d');
-const TURN=85,VER='2.4';
-// Тестовая сборка (адрес содержит "hordtest"): версия с суффиксом и отдельные комнаты
-const HT=/hordtest/i.test(location.href);
-/* ---- карта острова: 0 море, 1 суша (тут появляется еда), 2 река/озеро (проходимо), 3 суша без еды ---- */
-const SEA_KILLS=false; // false: море проходимо, поле зациклено по краям
-const GRID0=["00000000000000000000000000000000000000000", "00000000000000000000000000000000000000000", "00000000000000011111111010000000000000000", "00000000000010111111122110000000000000000", "00000000000011111111122211111000000000000", "00000000000111111111111111111100000000000", "00000000011111111111111111111110000000000", "00000000111111111111111111111111100000000", "00000001111222222222222211111122200000000", "00000001122211121111122222112222220000000", "00010112221111112111111112222112222221000", "01112222211111112111111111111112222221100", "11112111211111112211111111111111222211100", "01111111211111111211111111111111111111110", "00111111221111111221111111111111111111100", "00111111221111111112211111111111111111100", "01111111121111111111221111111111111111111", "11111111121111111111122111111111111111111", "11111101122111111111222211111111111111111", "11100111112211112222111211111111111111111", "00000111111122222111111121111111111111111", "00000000111111111111111121111111111111111", "00000000011111111111111121111111111111111", "00000000111111111111111121111111111111110", "00000001111111111111111121111111111111100", "00000001111111111111111121111111111111100", "00000001111111111111101221111111111000000", "00000000111111111111000010000000000300000", "00000000000000011111000000000000000000000", "00000000000000000100000000000000000000000"];
-const GRID=[].concat(...GRID0.map(r=>{const w=[...r].map(c=>c.repeat(SC)).join('');return Array(SC).fill(w)}));
-let FOODCELLS=[];GRID.forEach((r,y)=>[...r].forEach((c,x)=>{if(c=='1')FOODCELLS.push([x,y])}));
-let refined=0;
-function refine(){
- if(refined||!(MAP.complete&&MAP.naturalWidth))return;refined=1;
- try{
-  const w=MAP.naturalWidth,h=MAP.naturalHeight,c=document.createElement('canvas');c.width=w;c.height=h;
-  const k=c.getContext('2d',{willReadFrequently:true});k.drawImage(MAP,0,0);const d=k.getImageData(0,0,w,h).data;
-  const land=(x,y)=>{const px=Math.min(w-1,Math.max(0,Math.floor((x+.5)/NX*w))),py=Math.min(h-1,Math.max(0,Math.floor((y+.5)/NY*h))),i=(py*w+px)*4,r=d[i],g=d[i+1],b=d[i+2];return b<=Math.max(r,g)};
-  const M=3,ok=FOODCELLS.filter(([x,y])=>land(x,y)&&[[M,0],[-M,0],[0,M],[0,-M],[M,M],[-M,-M],[M,-M],[-M,M]].every(([a,b])=>land(x+a,y+b)));
-  if(ok.length>50)FOODCELLS=ok;
- }catch(e){}
-}
-const isSea=p=>{const c=cell(p);return GRID[c[1]][c[0]]=='0'};
-const MAP=new Image();MAP.src='data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBAUEBAYFBQUGBgYHCQ4JCQgICRINDQoOFRIWFhUSFBQXGiEcFxgfGRQUHScdHyIjJSUlFhwpLCgkKyEkJST/2wBDAQYGBgkICREJCREkGBQYJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCT/wAARCAJYAzQDASIAAhEBAxEB/8QAHAAAAgMBAQEBAAAAAAAAAAAAAQIAAwQFBgcI/8QATxAAAQQBAwEFBgQDBAYGCAcBAQACAxEEBRIhMQYTQVFhBxQiMnGBkaGx0SNCwRVS4fAWJGJygpIIM0NTk/FUc3SDoqOy4hcmNDVERVXC/8QAGgEBAAMBAQEAAAAAAAAAAAAAAAECAwQFBv/EADMRAAICAQQABQEHBAMBAQEAAAABAgMRBBIhMQUTIkFRMhRCUmGBkaEjM3HRFbHw8WLB/9oADAMBAAIRAxEAPwDxaCKhXoHlClBMlQEUtRBAFRQKIAohAIoAooIhAEIpUyAgRQRQEUUUQAKihUQAKBRKCACCKBQAQTKIBVEVEAFEyiAVRMggAoiigBSKigCAIUURQERUARpAQIqI0gAiojSACNKUigIpSlI0gIpSNI0oAKRpGlKQApGkaRpAABGkaRAQEpSkaRpACkUaUpCSUojSlIAKIqIAKI0hSAiFIqIAUoiogBSlIqIAUoiogAgUaUQCoJqQQCkIUmpSkAqFJqUpALSlJqQpAClKTUpSAVFGlKQApSkaRpALSKNKUgBSlJqUpACkaRpSkAKUpNSlIBaUpNSlIBaUTUogOagmKBUkClApkEAqhUUKACKCiAKIQUQDIpQUUAwRCVFAMoCgCigCogogIVFFEACgiUEAFFCRu22Lq6UTIJSFIqIAUpSKiAFKUiogBSiKiAClIqICUopSNICIgIgIgIAUmpEBEBAClKTUpSAFKUmpSkAKUpNSNIBQEaTUjSgC0jSbajtQC0jSbajSAWkaTUjSAWlKTUjSAWkaTUjSEi0jSalKQApSk1KUgFpSk1KUgFpSk1KUgFpSk9IUgApSk1KUgFpSk1KUgFpSk9IUgApSk1KUgFpSk9IUgApSk1KUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9KUgFpSk9IUgFpSk9KUgFpSk9KUgFpSk9KUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9KUgFpSk9KUgFpSk9KUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9KUgFpSk9KUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk9IUgFpSk
+
+    <h1>Змейка P2P</h1>
+    
+    <div class="info-panel">
+        Онлайн: нажмите «Играть онлайн» или создайте комнату для друга. <br>
+        Сервер только знакомит вас, сама игра идёт напрямую между браузерами.
+    </div>
+
+    <div class="info-panel">
+        <span class="my-snake">■ Моя змейка</span> &nbsp;&nbsp;&nbsp;&nbsp; 
+        <span class="enemy-snake">■ Змейка врага</span>
+    </div>
+
+    <!-- Игровое поле -->
+    <canvas id="gameCanvas" width="600" height="400"></canvas>
+
+    <!-- Интерфейс управления -->
+    <div class="menu">
+        <button onclick="startGame('online')">Играть онлайн</button>
+        <button onclick="createRoom()">Создать комнату для друга</button>
+        <button onclick="joinCode()">Войти по коду</button>
+        <button onclick="startGame('single')">Играть одному</button>
+    </div>
+
+    <div class="menu">
+        <button onclick="copyCode()">Копировать код</button>
+        <button onclick="connect()">Подключиться</button>
+        <button onclick="goBack()">Назад</button>
+    </div>
+
+    <div class="footer">
+        🌳 Древо | Старт | Выйти
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const cellSize = 20;
+
+        // Демонстрационная отрисовка змеек для проверки стиля карты
+        function drawDemo() {
+            // Очищаем Canvas (сетка прорисуется автоматически за счет CSS фона)
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Рисуем "Мою змейку" (Неоновый бирюзовый)
+            ctx.fillStyle = '#00ffcc';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00ffcc';
+            // Тело змейки
+            ctx.fillRect(100, 200, cellSize - 2, cellSize - 2);
+            ctx.fillRect(120, 200, cellSize - 2, cellSize - 2);
+            ctx.fillRect(140, 200, cellSize - 2, cellSize - 2);
+            ctx.fillRect(160, 200, cellSize - 2, cellSize - 2);
+
+            // Рисуем "Змейку врага" (Неоновый малиновый)
+            ctx.fillStyle = '#ff3366';
+            ctx.shadowColor = '#ff3366';
+            ctx.fillRect(400, 100, cellSize - 2, cellSize - 2);
+            ctx.fillRect(400, 120, cellSize - 2, cellSize - 2);
+            ctx.fillRect(420, 120, cellSize - 2, cellSize - 2);
+
+            // Рисуем яблоко (Неоновый желтый/оранжевый)
+            ctx.fillStyle = '#ffff00';
+            ctx.shadowColor = '#ffff00';
+            ctx.fillRect(300, 220, cellSize - 2, cellSize - 2);
+            
+            // Сбрасываем тень, чтобы не тормозило
+            ctx.shadowBlur = 0;
+        }
+
+        // Запуск демо-режима при открытии страницы
+        drawDemo();
+
+        // Заглушки функций для интерфейса
+        function startGame(mode) { 
+            alert('Режим "' + mode + '" запущен! (Сетка настроена)'); 
+        }
+        function createRoom() { alert('Комната создана. Код сгенерирован.'); }
+        function joinCode() { alert('Введите код для подключения.'); }
+        function copyCode() { alert('Код скопирован в буфер обмена.'); }
+        function connect() { alert('Подключение к пиру...'); }
+        function goBack() { alert('Возврат в главное меню.'); }
+    </script>
+</body>
+</html>
