@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Змейка P2P</title>
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#d3dbb0,#161b11);--board:light-dark(#bcc88f,#1f2718);--soft:light-dark(#adbb7e,#2a3521);--ink:light-dark(#1f2a14,#cfdc9b);padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+:root[data-theme=dark]{color-scheme:dark}:root[data-theme=light]{color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font:600 15px/1.45 ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:14px;display:flex;justify-content:center}
+main{width:100%;max-width:440px;display:flex;flex-direction:column;gap:12px}
+h1{margin:6px 0 0;font-size:28px;letter-spacing:-.02em}
+h1 small{font-size:13px;font-weight:600;letter-spacing:0;opacity:.7}
+section{display:flex;flex-direction:column;gap:10px}
+[hidden]{display:none!important}
+p{margin:0}
+button,textarea,input{font:inherit;color:var(--ink);background:transparent;border:2px solid var(--ink);border-radius:4px;padding:12px}
+button{cursor:pointer;font-weight:700;transition:transform .18s ease,background .2s ease,box-shadow .2s ease}button:hover{transform:translateY(-2px);box-shadow:0 5px 14px #0002}button:active{transform:translateY(1px) scale(.98)}
+button:focus-visible,textarea:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.pr{background:var(--ink);color:var(--bg)}
+textarea{height:68px;resize:none;width:100%;background:var(--board);font-size:30px;text-align:center;letter-spacing:.2em;text-transform:uppercase;padding:14px}
+canvas{width:100%;aspect-ratio:1;display:block;border:3px solid var(--ink);border-radius:4px;touch-action:none;background:var(--board)}
+.row{display:flex;justify-content:space-between;gap:8px}
+.row button{flex:1}
+#nick{width:100%;background:var(--board);font-size:18px}
+.m{display:inline-block;width:12px;height:12px;background:#00a83b;margin-right:6px;border-radius:3px;box-shadow:0 0 8px #00ff66,0 0 16px #00ff6688}
+.m.o{background:#ff4545;border:0;border-radius:3px;box-shadow:0 0 8px #ff454588}
+#st{text-align:center}
+#hud{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
+#prog{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.35}
+#pt{font-size:15px}
+#bar{height:12px;border:2px solid var(--ink);border-radius:4px;background:var(--board);overflow:hidden}
+#fill{display:block;height:100%;width:0;background:var(--ink);transition:width .2s}
+#jcol{display:flex;flex-direction:column;align-items:center;gap:6px}
+#len{font-size:17px;font-weight:700;white-space:nowrap}
+#joy{display:none;position:relative;width:min(44vw,160px);aspect-ratio:1;margin:0;border:3px solid var(--ink);border-radius:50%;background:linear-gradient(var(--soft),var(--soft)) center/100% 3px no-repeat,linear-gradient(var(--soft),var(--soft)) center/3px 100% no-repeat,var(--board);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#knob{position:absolute;left:50%;top:50%;width:40%;aspect-ratio:1;margin:-20% 0 0 -20%;border-radius:50%;background:var(--ink);pointer-events:none}
+@media(pointer:coarse){#joy{display:block}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+<main>
+<h1>Змейка P2P <small id="ver"></small></h1>
+<section id="menu">
+<p id="mh">Онлайн: нажмите «Играть онлайн» или создайте комнату для друга. Сервер только знакомит вас, сама игра идёт напрямую между браузерами.</p>
+<input id="nick" maxlength="12" placeholder="Ваш ник" autocomplete="off">
+<button class="pr" id="b4">Играть онлайн</button>
+<button id="b2">Создать комнату для друга</button>
+<button id="b3">Войти по коду</button>
+<button id="b1">Играть одному</button>
+</section>
+<section id="net" hidden>
+<p id="hint"></p>
+<textarea id="out" readonly></textarea>
+<button id="cp">Копировать код</button>
+<textarea id="in" maxlength="5" placeholder="КОД"></textarea>
+<button class="pr" id="ok">Подключиться</button>
+<button id="bk">Назад</button>
+</section>
+<section id="game" hidden>
+<div class="row"><span id="s0"></span><span id="s1"></span></div>
+<canvas id="cv" width="600" height="600"></canvas>
+<p id="st"></p>
+<div id="hud">
+<div id="prog"><b id="pt"></b><span id="pn"></span><div id="bar"><i id="fill"></i></div></div>
+<div id="jcol"><p id="len"></p><div id="joy"><div id="knob"></div></div></div>
+</div>
+<div class="row"><button class="pr" id="go">Старт</button><button id="ex">Выйти</button></div>
+</section>
+</main>
+<script>
+const $=i=>document.getElementById(i),N=30,cv=$('cv'),cx=cv.getContext('2d');
+const TURN=85,VER='1.8';
+// В репозитории zmeyka-hordtest (адрес содержит "hordtest") к версии добавляется ".hordtest"
+$('ver').textContent='v'+VER+(/hordtest/i.test(location.href)?'.hordtest':'');
+const AL='ABCDEFGHJKMNPQRSTUVWXYZ23456789',PRE='zmeyka-';
+let role,peer,conn,G,tm=[],ME='',linked=0;const NM=['',''];
+const show=id=>['menu','net','game'].forEach(k=>$(k).hidden=k!=id);
+const rnd=n=>Math.floor(Math.random()*n);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+try{$('nick').value=localStorage.nick||''}catch(e){}
+function nk(){const n=$('nick').value.trim().slice(0,12);if(!n){txt('mh','Введите ник, чтобы играть онлайн.');$('nick').focus();return ''}try{localStorage.nick=n}catch(e){}return n}
+const txt=(i,t)=>{$(i).textContent=t};
+const tx=o=>conn&&conn.open&&conn.send(o);
+const PLAYER='#00a83b',PLAYER_GLOW='#00ff66',ENEMY='#ff4545';
+const meIdx=()=>role=='guest'?1:0;
+
+/* ---- скорость: +5% за каждую степень двойки 4, 8, ... 1024 ---- */
+const LV=l=>{let b=0;for(let k=2;k<=10;k++)if(l>=(1<<k))b++;return b};
+const mult=i=>1+.05*LV(G.s[i].length);
+const base=()=>Math.max(47,147-5*(G.sc[0]+G.sc[1]));
+const delay=i=>base()/mult(i);
+const snap=()=>Object.assign({},G,{prev:0,anim:0});
+
+/* ---- симуляция (хост / одиночная игра) ---- */
+function init(n){
+ const A=[[6,15,1,0],[23,15,-1,0]].slice(0,n);
+ G={n,s:A.map(([x,y,a,b])=>[[x,y],[x-a,y-b],[x-2*a,y-2*b]]),d:A.map(a=>[a[2],a[3]]),nd:A.map(a=>[a[2],a[3]]),sc:[0,0],gr:[0,0],over:0,w:-1,prev:[],anim:[]};
+ food();
+}
+function food(){let p;do p=[rnd(N),rnd(N)];while(G.s.some(s=>s.some(c=>c[0]==p[0]&&c[1]==p[1])));G.f=p}
+function turn(i,x,y){
+  const d=G.d[i],m=Math.hypot(x,y);
+  if(!m)return;
+  x/=m;y/=m;
+  // Максимальный поворот относительно текущего курса: TURN градусов.
+  const dot=Math.max(-1,Math.min(1,d[0]*x+d[1]*y));
+  const angle=Math.acos(dot);
+  const limit=TURN*Math.PI/180;
+  if(angle<=limit)G.nd[i]=[x,y];
+  else{
+    const sign=d[0]*y-d[1]*x>=0?1:-1;
+    const a=sign*limit,ca=Math.cos(a),sa=Math.sin(a);
+    G.nd[i]=[d[0]*ca-d[1]*sa,d[0]*sa+d[1]*ca];
+  }
+}
+const near=(a,b,r)=>{let dx=Math.abs(a[0]-b[0]),dy=Math.abs(a[1]-b[1]);dx=Math.min(dx,N-dx);dy=Math.min(dy,N-dy);return dx*dx+dy*dy<r*r};
+const cell=p=>[Math.floor(((p[0]%N)+N)%N+.5)%N,Math.floor(((p[1]%N)+N)%N+.5)%N];
+const same=(a,b)=>{const A=cell(a),B=cell(b);return A[0]===B[0]&&A[1]===B[1]};
+// Каждая змея ходит по собственному таймеру: так бонус скорости у каждой свой.
+function step(i){
+ const j=1-i,q=G.s,s=q[i],gr=G.gr;
+ G.prev[i]=s.map(c=>c.slice());G.anim[i]=performance.now();
+ G.d[i]=G.nd[i];
+ const h=[(s[0][0]+G.d[i][0]+N)%N,(s[0][1]+G.d[i][1]+N)%N];
+ const ate=same(h,G.f),grow=ate||gr[i]>0,dead=[0,0];
+ if((grow?s:s.slice(0,-1)).some(c=>near(c,h,.7)))dead[i]=1;
+ if(G.n>1&&!dead[i]){
+  const o=q[j],a=s.length,b=o.length;
+  if(near(h,o[0],.8)){
+   if(a<=b)dead[i]=1;
+   if(b<=a)dead[j]=1;
+  } else {
+   const jg=gr[j]>0;
+   const k=o.findIndex((c,x)=>near(c,h,.75)&&(x<o.length-1||jg));
+   if(k>=0){const t=Math.max(k,1),n=o.length-t;o.splice(t);gr[i]+=n;G.sc[i]+=n}
+  }
+ }
+ if(!dead[i]){
+  s.unshift(h);
+  if(ate)G.sc[i]++;else if(gr[i]>0)gr[i]--;else s.pop();
+  if(ate)food();
+ }
+ if(dead[0]||dead[1]){
+  G.over=1;G.x=dead;const[a,b]=G.sc;
+  G.w=G.n<2?-1:(dead[0]&&dead[1]?(a>b?0:(b>a?1:-1)):(dead[0]?1:0));
+ }
+}
+function stopAll(){tm.forEach(clearTimeout);tm=[]}
+function tick(i){
+ if(!G||G.over)return;
+ step(i);tx({t:'s',G:snap()});draw();ui();
+ if(!G.over)tm[i]=setTimeout(()=>tick(i),delay(i));
+}
+function start(){
+ stopAll();init(conn&&conn.open?2:1);tx({t:'s',G:snap()});draw();ui();
+ for(let i=0;i<G.n;i++)tm[i]=setTimeout(()=>tick(i),delay(i));
+}
+
+/* ---- отрисовка ---- */
+const pr=document.createElement('i');pr.hidden=true;document.body.appendChild(pr);
+const col=k=>{pr.style.color='var('+k+')';return getComputedStyle(pr).color};
+function draw(){
+  const v=col,S=cv.width/N,bg=v('--board');
+  cx.globalAlpha=1;cx.globalCompositeOperation='source-over';cx.shadowBlur=0;cx.shadowColor='transparent';cx.fillStyle=bg;cx.fillRect(0,0,600,600);
+  cx.fillStyle=v('--soft');
+  const gi=S*.37,gs=S*.26;
+  for(let x=0;x<N;x++)for(let y=0;y<N;y++)cx.fillRect(x*S+gi,y*S+gi,gs,gs);
+  if(!G)return;
+  const me=meIdx(),now=performance.now();
+  const px=(G.f[0]+.5)*S,py=(G.f[1]+.5)*S,r=S*(.30+.08*Math.sin(now/180));
+  cx.save();cx.translate(px,py);cx.rotate(Math.PI/4);cx.fillStyle='#ffd84a';
+  cx.shadowColor='#ffd84a';cx.shadowBlur=12;cx.fillRect(-r*.72,-r*.72,r*1.44,r*1.44);cx.restore();
+  G.s.forEach((s,i)=>{
+    const mine=i===me;
+    const color=mine?PLAYER:ENEMY;
+    const an=G.anim&&G.anim[i];
+    const progress=an?Math.min(1,(now-an)/Math.max(1,delay(i))):1;
+    const ease=1-Math.pow(1-progress,3);
+    const old=(G.prev&&G.prev[i])||s;
+    cx.globalAlpha=(G.over&&G.x&&G.x[i])?0.35:1;
+    s.forEach(([x,y],k)=>{
+      const from=old[Math.max(0,k-1)]||[x,y];
+      let dx=x-from[0],dy=y-from[1];
+      if(dx>N/2)dx-=N;if(dx< -N/2)dx+=N;
+      if(dy>N/2)dy-=N;if(dy< -N/2)dy+=N;
+      const xx=((from[0]+dx*ease+N)%N)*S+S/2;
+      const yy=((from[1]+dy*ease+N)%N)*S+S/2;
+      const size=k===0?S*.78:S*.72,rad=k===0?S*.24:S*.2;
+      cx.fillStyle=color;cx.shadowColor=mine?PLAYER_GLOW:ENEMY;cx.shadowBlur=mine?(k===0?18:10):(k===0?10:4);
+      cx.beginPath();
+      if(typeof cx.roundRect==='function') cx.roundRect(xx-size/2,yy-size/2,size,size,rad);
+      else cx.rect(xx-size/2,yy-size/2,size,size);
+      cx.fill();
+      if(k===0){
+        cx.shadowBlur=0;cx.fillStyle='#101010';
+        const ex=xx+(i===0?S*.12:-S*.12),ey=yy-S*.08;
+        cx.beginPath();cx.arc(ex,ey,S*.09,0,Math.PI*2);cx.fill();
+      }
+    });
+  });
+  cx.globalAlpha=1;cx.shadowBlur=0;
+}
+function animate(){draw();requestAnimationFrame(animate)}
+
+function ui(){
+ const me=meIdx(),two=G?G.n>1:role!='solo',L=i=>two?esc(NM[i]||(i==me?'Вы':'Друг')):'Счёт';
+ const mk=i=>'<span class="m'+(i==me?'':' o')+'"></span>';
+ $('s0').innerHTML=mk(0)+L(0)+': '+(G?G.sc[0]:0);
+ $('s1').innerHTML=two?mk(1)+L(1)+': '+(G?G.sc[1]:0):'';
+ txt('st',!G?'Нажмите «Старт»':!G.over?'Джойстик, стрелки или WASD':G.n<2?'Игра окончена':G.w<0?'Ничья':G.w==me?'Вы победили!':'Вы проиграли');
+ $('go').hidden=!!G&&!G.over;txt('go',G?'Реванш':'Старт');
+ /* длина и прогресс бонусов скорости */
+ const len=G&&G.s[me]?G.s[me].length:0,lv=LV(len),max=len>=1024;
+ let nx=4;while(nx<=len&&nx<1024)nx*=2;
+ const pv=nx/2,pct=max?100:Math.max(0,Math.min(100,(len-pv)/(nx-pv)*100));
+ txt('len','Длина: '+(len||'—'));
+ txt('pt','Скорость: +'+lv*5+'%');
+ txt('pn',max?'Все бонусы получены':'Следующие +5% на длине '+nx+' (сейчас '+len+')');
+ $('fill').style.width=pct+'%';
+}
+
+/* ---- сеть: PeerJS (общий сервер знакомства, дальше напрямую) ---- */
+function setup(c,busy){
+ conn=c;
+ c.on('open',()=>c.send({t:'n',n:ME}));
+ c.on('data',m=>{
+  if(m.t=='busy'){c.close();conn=null;busy&&busy()}
+  else if(m.t=='n'){NM[role=='host'?1:0]=String(m.n).slice(0,12);NM[role=='host'?0:1]=ME;linked=1;G=null;show('game');ui();draw()}
+  else if(m.t=='s'){
+   const o=G&&G.s&&!G.over?G:null,n=performance.now();
+   m.G.prev=[];m.G.anim=[];
+   m.G.s.forEach((s,i)=>{
+    const os=o&&o.s[i];
+    if(os&&(os[0][0]!==s[0][0]||os[0][1]!==s[0][1])){m.G.prev[i]=os.map(c=>c.slice());m.G.anim[i]=n}
+    else{m.G.prev[i]=o&&o.prev?o.prev[i]:undefined;m.G.anim[i]=o&&o.anim?o.anim[i]:0}
+   });
+   G=m.G;draw();ui();
+  }
+  else if(role=='host'&&m.t=='d'&&G)turn(1,m.v[0],m.v[1]);
+  else if(role=='host'&&m.t=='r')start()});
+ c.on('close',lost);c.on('error',lost);
+}
+function lost(){stopAll();conn=null;txt('st','Соединение потеряно. Нажмите «Выйти»');$('go').hidden=true}
+function quick(){
+ if(!window.Peer)return txt('mh','Не загрузился PeerJS. Проверьте интернет.');
+ show('net');$('out').hidden=$('cp').hidden=$('in').hidden=$('ok').hidden=true;slot(0);
+}
+function slot(k){
+ txt('hint','Ищем соперника…');linked=0;conn=null;
+ if(k>5)return txt('hint','Сейчас все комнаты заняты. Попробуйте чуть позже.');
+ const id=PRE+'q'+k;if(peer)peer.destroy();const p=peer=new Peer(id);
+ p.on('open',()=>{role='host';txt('hint','Ждём соперника… Он найдёт вас сам.')});
+ p.on('connection',c=>{if(conn)c.on('open',()=>{c.send({t:'busy'});setTimeout(()=>c.close(),500)});else setup(c)});
+ p.on('error',e=>{
+  if(e.type!='unavailable-id')return txt('hint','Нет связи с сервером ('+e.type+')');
+  p.destroy();const q=peer=new Peer();
+  q.on('open',()=>{role='guest';txt('hint','Подключаемся…');setup(q.connect(id,{reliable:true}),()=>slot(k+1));
+   setTimeout(()=>{if(!linked&&peer==q)slot(k+1)},10000)});
+  q.on('error',x=>x.type=='peer-unavailable'?slot(k):txt('hint','Нет связи с сервером ('+x.type+')'));
+ });
+}
+function hostRoom(){
+ if(!window.Peer)return txt('hint','Не загрузился PeerJS. Проверьте интернет.');
+ role='host';show('net');$('out').hidden=$('cp').hidden=false;$('in').hidden=$('ok').hidden=true;$('out').value='';txt('hint','Создаю комнату…');
+ const code=Array.from({length:5},()=>AL[rnd(AL.length)]).join('');
+ if(peer)peer.destroy();peer=new Peer(PRE+code);
+ peer.on('open',()=>{$('out').value=code;txt('hint','Отправьте этот код другу. Игра начнётся, когда он войдёт.')});
+ peer.on('connection',c=>{if(conn&&conn.open)c.close();else setup(c)});
+ peer.on('error',e=>e.type=='unavailable-id'?hostRoom():txt('hint','Нет связи с сервером ('+e.type+')'));
+}
+function joinRoom(){
+ if(!window.Peer)return txt('hint','Не загрузился PeerJS. Проверьте интернет.');
+ const code=$('in').value.trim().toUpperCase();if(code.length<5)return txt('hint','Введите 5 символов кода.');
+ txt('hint','Подключаюсь…');if(peer)peer.destroy();peer=new Peer();
+ peer.on('open',()=>setup(peer.connect(PRE+code,{reliable:true})));
+ peer.on('error',e=>txt('hint',e.type=='peer-unavailable'?'Комната не найдена. Проверьте код.':'Нет связи с сервером ('+e.type+')'));
+}
+$('b1').onclick=()=>{role='solo';show('game');start()};
+$('b2').onclick=()=>{if(ME=nk())hostRoom()};
+$('b4').onclick=()=>{if(ME=nk())quick()};
+$('b3').onclick=()=>{if(!(ME=nk()))return;role='guest';show('net');$('out').hidden=$('cp').hidden=true;$('in').hidden=$('ok').hidden=false;$('in').value='';txt('hint','Введите код комнаты, который прислал друг.')};
+$('ok').onclick=joinRoom;
+$('cp').onclick=async()=>{$('out').select();try{await navigator.clipboard.writeText($('out').value)}catch(e){document.execCommand('copy')}};
+$('bk').onclick=$('ex').onclick=()=>location.reload();
+$('go').onclick=()=>role=='guest'?tx({t:'r'}):start();
+
+/* ---- управление ---- */
+function dir(v){if(role=='guest')tx({t:'d',v});else if(G&&!G.over)turn(0,v[0],v[1])}
+const K={ArrowUp:[0,-1],KeyW:[0,-1],ArrowDown:[0,1],KeyS:[0,1],ArrowLeft:[-1,0],KeyA:[-1,0],ArrowRight:[1,0],KeyD:[1,0]};
+addEventListener('keydown',e=>{const v=K[e.code];if(v&&!$('game').hidden){e.preventDefault();dir(v)}});
+const J=$('joy'),Kn=$('knob');let jp=null,jd='';
+function jmove(e){
+ const r=J.getBoundingClientRect(),R=r.width/2;let dx=e.clientX-r.left-R,dy=e.clientY-r.top-R;
+ const m=Math.hypot(dx,dy),L=R*.55;if(m>L){dx*=L/m;dy*=L/m}
+ Kn.style.transform='translate('+dx+'px,'+dy+'px)';
+ if(m>R*.25){const v=[dx/m,dy/m];const key=[Math.round(v[0]*100),Math.round(v[1]*100)].join(',');if(key!==jd){jd=key;dir(v)}}
+}
+J.onpointerdown=e=>{jp=e.pointerId;try{J.setPointerCapture(jp)}catch(x){}Kn.style.transition='';jmove(e)};
+J.onpointermove=e=>{if(e.pointerId==jp)jmove(e)};
+J.onpointerup=J.onpointercancel=()=>{jp=null;jd='';Kn.style.transition='transform .12s';Kn.style.transform=''};
+let t0;cv.ontouchstart=e=>{t0=e.touches[0]};
+cv.ontouchend=e=>{if(!t0)return;const t=e.changedTouches[0],dx=t.clientX-t0.clientX,dy=t.clientY-t0.clientY;if(Math.hypot(dx,dy)>20)dir([dx,dy]);t0=null};
+draw();requestAnimationFrame(animate);
+</script>
+</body>
+</html>
