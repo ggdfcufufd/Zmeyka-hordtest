@@ -41,6 +41,14 @@ canvas{width:100%;max-width:600px;margin:0 auto;aspect-ratio:1;display:block;bor
 #joy{position:relative;width:min(44vw,160px);aspect-ratio:1;margin:0;border:3px solid var(--ink);border-radius:50%;background:linear-gradient(var(--soft),var(--soft)) center/100% 3px no-repeat,linear-gradient(var(--soft),var(--soft)) center/3px 100% no-repeat,var(--board);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 #knob{position:absolute;left:50%;top:50%;width:40%;aspect-ratio:1;margin:-20% 0 0 -20%;border-radius:50%;background:var(--ink);pointer-events:none}
 #joy{display:block;cursor:grab}
+#tree{align-self:flex-start;padding:6px 12px;font-size:14px}
+#tr{position:fixed;inset:0;z-index:9;background:#0009;display:flex;align-items:center;justify-content:center;padding:calc(14px + env(safe-area-inset-top,0px)) 14px calc(14px + env(safe-area-inset-bottom,0px))}
+#trb{width:100%;max-width:440px;max-height:100%;overflow:auto;background:var(--bg);border:3px solid var(--ink);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:8px}
+#trb p{font-size:13px}
+.sl{display:flex;justify-content:space-between;align-items:center;gap:8px;border:2px solid var(--ink);border-radius:4px;padding:10px;background:var(--board);text-align:left;width:100%}
+.sl.on{background:var(--ink);color:var(--bg)}.sl.off{opacity:.55}.sl.go{justify-content:center}
+.mg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mg button:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
@@ -70,19 +78,20 @@ canvas{width:100%;max-width:600px;margin:0 auto;aspect-ratio:1;display:block;bor
 <canvas id="cv" width="600" height="600"></canvas>
 <p id="st"></p>
 <div id="hud">
-<div id="prog"><b id="pt"></b><span id="pn"></span><div id="bar"><i id="fill"></i></div></div>
+<div id="prog"><button type="button" id="tree">🌳 Древо</button><b id="pt"></b><span id="pn"></span><div id="bar"><i id="fill"></i></div></div>
 <div id="jcol"><p id="len"></p><div id="joy"><div id="knob"></div></div></div>
 </div>
 <div class="row"><button class="pr" id="go">Старт</button><button id="ex">Выйти</button></div>
 </section>
 </main>
+<div id="tr" hidden><div id="trb"></div></div>
 <script>
 const $=i=>document.getElementById(i),SC=8,VW=50,NX=41*SC,NY=30*SC,cv=$('cv'),cx=cv.getContext('2d');
-const TURN=85,VER='2.3';
+const TURN=85,VER='2.4';
 // Тестовая сборка (адрес содержит "hordtest"): версия с суффиксом и отдельные комнаты
 const HT=/hordtest/i.test(location.href);
 /* ---- карта острова: 0 море, 1 суша (тут появляется еда), 2 река/озеро (проходимо), 3 суша без еды ---- */
-const SEA_KILLS=true; // false: море проходимо, поле зациклено по краям
+const SEA_KILLS=false; // false: море проходимо, поле зациклено по краям
 const GRID0=["00000000000000000000000000000000000000000", "00000000000000000000000000000000000000000", "00000000000000011111111010000000000000000", "00000000000010111111122110000000000000000", "00000000000011111111122211111000000000000", "00000000000111111111111111111100000000000", "00000000011111111111111111111110000000000", "00000000111111111111111111111111100000000", "00000001111222222222222211111122200000000", "00000001122211121111122222112222220000000", "00010112221111112111111112222112222221000", "01112222211111112111111111111112222221100", "11112111211111112211111111111111222211100", "01111111211111111211111111111111111111110", "00111111221111111221111111111111111111100", "00111111221111111112211111111111111111100", "01111111121111111111221111111111111111111", "11111111121111111111122111111111111111111", "11111101122111111111222211111111111111111", "11100111112211112222111211111111111111111", "00000111111122222111111121111111111111111", "00000000111111111111111121111111111111111", "00000000011111111111111121111111111111111", "00000000111111111111111121111111111111110", "00000001111111111111111121111111111111100", "00000001111111111111111121111111111111100", "00000001111111111111101221111111111000000", "00000000111111111111000010000000000300000", "00000000000000011111000000000000000000000", "00000000000000000100000000000000000000000"];
 const GRID=[].concat(...GRID0.map(r=>{const w=[...r].map(c=>c.repeat(SC)).join('');return Array(SC).fill(w)}));
 let FOODCELLS=[];GRID.forEach((r,y)=>[...r].forEach((c,x)=>{if(c=='1')FOODCELLS.push([x,y])}));
@@ -142,15 +151,15 @@ const meIdx=()=>role=='guest'?1:0;
 
 /* ---- скорость: +5% за каждую степень двойки 4, 8, ... 1024 ---- */
 const LV=l=>{let b=0;for(let k=2;k<=10;k++)if(l>=(1<<k))b++;return b};
-const mult=i=>1+.05*LV(G.s[i].length);
+const mult=i=>(1+.05*LV(G.s[i].length))*(mutOn(i)?2:1);
 const base=()=>Math.max(26,80-2.8*(G.sc[0]+G.sc[1]));
 const delay=i=>base()/mult(i);
-const snap=()=>Object.assign({},G,{prev:0,anim:0});
+const snap=()=>Object.assign({},G,{prev:0,anim:0,mu:G.mu.map(a=>a.map(s=>({m:s.m,r:s.m<0?0:Math.max(0,s.e-Date.now())})))});
 
 /* ---- симуляция (хост / одиночная игра) ---- */
 function init(n){
  const A=[[12*SC+2,22*SC+2,1,0],[36*SC+2,22*SC+2,-1,0]].slice(0,n);
- G={n,s:A.map(([x,y,a,b])=>[[x,y],[x-a,y-b],[x-2*a,y-2*b]]),d:A.map(a=>[a[2],a[3]]),nd:A.map(a=>[a[2],a[3]]),sc:[0,0],gr:[0,0],over:0,w:-1,prev:[],anim:[],f:[]};
+ G={n,s:A.map(([x,y,a,b])=>[[x,y],[x-a,y-b],[x-2*a,y-2*b]]),d:A.map(a=>[a[2],a[3]]),nd:A.map(a=>[a[2],a[3]]),sc:[0,0],gr:[0,0],over:0,w:-1,prev:[],anim:[],f:[],mu:A.map(()=>[0,1,2,3].map(()=>({m:-1,e:0}))),mx:A.map(()=>3)};
  food();
 }
 function food(){refine();while(G.f.length<G.n*3){let p;do{const c=FOODCELLS[rnd(FOODCELLS.length)];p=[c[0],c[1]]}while(G.s.some(s=>s.some(c=>same(c,p)))||G.f.some(f=>same(f,p)));G.f.push(p)}}
@@ -196,6 +205,7 @@ function step(i){
   s.unshift(h);
   if(ate)G.sc[i]++;else if(gr[i]>0)gr[i]--;else s.pop();
   if(ate){G.f.splice(fi,1);food()}
+  G.mx[i]=Math.max(G.mx[i],s.length);
  }
  if(dead[0]||dead[1]){
   G.over=1;G.x=dead;const[a,b]=G.sc;
@@ -209,7 +219,7 @@ function tick(i){
  if(!G.over)tm[i]=setTimeout(()=>tick(i),delay(i));
 }
 function start(){
- stopAll();init(conn&&conn.open?2:1);tx({t:'s',G:snap()});draw();ui();
+ stopAll();$('tr').hidden=true;pick=-1;init(conn&&conn.open?2:1);tx({t:'s',G:snap()});draw();ui();
  for(let i=0;i<G.n;i++)tm[i]=setTimeout(()=>tick(i),delay(i));
 }
 
@@ -298,7 +308,8 @@ function ui(){
  let nx=4;while(nx<=len&&nx<1024)nx*=2;
  const pv=nx/2,pct=max?100:Math.max(0,Math.min(100,(len-pv)/(nx-pv)*100));
  txt('len','Длина: '+(len||'—'));
- txt('pt','Скорость: +'+lv*5+'%');
+ txt('pt','Скорость: +'+lv*5+'%'+(mutOn(me)?' · мутация ×2':''));
+ const av=!!(G&&G.mu&&G.mu[me]&&G.mu[me].some((s,k)=>s.m<0&&G.mx[me]>=TH[k])),tl='🌳 Древо'+(av?' •':'');if($('tree').textContent!==tl)$('tree').textContent=tl;
  txt('pn',max?'Все бонусы получены':'Следующие +5% на длине '+nx+' (сейчас '+len+')');
  $('fill').style.width=pct+'%';
 }
@@ -318,9 +329,11 @@ function setup(c,busy){
     if(os&&(os[0][0]!==s[0][0]||os[0][1]!==s[0][1])){m.G.prev[i]=os.map(c=>c.slice());m.G.anim[i]=n}
     else{m.G.prev[i]=o&&o.prev?o.prev[i]:undefined;m.G.anim[i]=o&&o.anim?o.anim[i]:0}
    });
+   if(m.G.mu)m.G.mu=m.G.mu.map(a=>a.map(s=>({m:s.m,e:Date.now()+s.r})));
    G=m.G;draw();ui();
   }
   else if(role=='host'&&m.t=='d'&&G)turn(1,m.v[0],m.v[1]);
+  else if(role=='host'&&m.t=='m'&&G)choose(1,m.k,m.m);
   else if(role=='host'&&m.t=='r')start()});
  c.on('close',lost);c.on('error',lost);
 }
@@ -367,6 +380,50 @@ $('ok').onclick=joinRoom;
 $('cp').onclick=async()=>{$('out').select();try{await navigator.clipboard.writeText($('out').value)}catch(e){document.execCommand('copy')}};
 $('bk').onclick=$('ex').onclick=()=>location.reload();
 $('go').onclick=()=>role=='guest'?tx({t:'r'}):start();
+
+/* ---- древо мутаций: 4 слота (длина 16/32/64/128), 110 сек, ×2 к скорости, без повторов ---- */
+const TH=[16,32,64,128],MUT_MS=110000;
+const MUTS=[['🐆','Гепард'],['⚡','Молния'],['🚀','Ракета'],['🌪','Вихрь'],['🔥','Огонь'],['🌊','Волна']];
+const mutOn=i=>!!(G&&G.mu&&G.mu[i]&&G.mu[i].some(s=>s.m>=0&&s.e>Date.now()));
+let pick=-1,trSig='';
+function choose(i,k,m){
+ if(!G||G.over||!G.mu||!(k>=0&&k<4)||!(m>=0&&m<MUTS.length))return;
+ const a=G.mu[i];if(!a||G.mx[i]<TH[k]||a[k].m>=0||a.some(s=>s.m==m))return;
+ a[k]={m,e:Date.now()+MUT_MS};tx({t:'s',G:snap()});ui();
+}
+const fmt=ms=>{const s=Math.ceil(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+function trRender(){
+ if($('tr').hidden)return;
+ const me=meIdx(),a=G&&G.mu&&G.mu[me],now=Date.now();let h;
+ if(!a)h='<b>🌳 Древо мутаций</b><p>Сначала начните игру.</p><button type="button" data-x="1">Закрыть</button>';
+ else{
+  const mx=G.mx[me],used=a.map(s=>s.m);
+  if(pick>=0&&(a[pick].m>=0||mx<TH[pick]))pick=-1;
+  if(pick>=0)h='<b>Слот '+(pick+1)+': выберите мутацию</b><div class="mg">'+MUTS.map(([e,n],m)=>'<button type="button" data-m="'+m+'"'+(used.includes(m)?' disabled':'')+'>'+e+' '+n+'</button>').join('')+'</div><button type="button" data-b="1">Назад</button>';
+  else{
+   h='<b>🌳 Древо мутаций</b><p>Мутация держится 110 сек и даёт ×2 к скорости. Одинаковые мутации ставить нельзя.</p>';
+   a.forEach((s,k)=>{
+    if(s.m>=0)h+='<div class="sl '+(s.e>now?'on':'off')+'"><span>'+MUTS[s.m][0]+' '+MUTS[s.m][1]+' ×2</span><span data-t="'+k+'"></span></div>';
+    else if(mx<TH[k])h+='<div class="sl off"><span>🔒 Слот '+(k+1)+'</span><span>длина '+TH[k]+'</span></div>';
+    else h+='<button type="button" class="sl go" data-k="'+k+'">Слот '+(k+1)+': выбрать мутацию</button>';
+   });
+   h+='<button type="button" data-x="1">Закрыть</button>';
+  }
+ }
+ if(h!==trSig){trSig=h;$('trb').innerHTML=h}
+ if(a)$('trb').querySelectorAll('[data-t]').forEach(el=>{const s=a[+el.dataset.t],r=s.e-now;el.textContent=r>0?'осталось '+fmt(r):'закончилась'});
+}
+const trClose=()=>{$('tr').hidden=true;pick=-1};
+$('tree').onclick=()=>{pick=-1;trSig='';$('tr').hidden=false;trRender()};
+$('tr').onclick=e=>{
+ if(e.target===$('tr'))return trClose();
+ const t=e.target.closest&&e.target.closest('button');if(!t)return;const d=t.dataset;
+ if(d.x)trClose();
+ else if(d.b){pick=-1;trRender()}
+ else if(d.k!==undefined){pick=+d.k;trRender()}
+ else if(d.m!==undefined&&pick>=0){const k=pick;pick=-1;if(role=='guest')tx({t:'m',k,m:+d.m});else choose(0,k,+d.m);trRender()}
+};
+setInterval(trRender,500);
 
 /* ---- управление ---- */
 function dir(v){if(role=='guest')tx({t:'d',v});else if(G&&!G.over)turn(0,v[0],v[1])}
