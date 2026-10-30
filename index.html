@@ -1,4 +1,4 @@
-!doctype html>
+<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -31,6 +31,7 @@ canvas{width:100%;max-width:600px;margin:0 auto;aspect-ratio:1;display:block;bor
 .pick{display:flex;flex-direction:column;gap:6px;font-size:13px}.pick b{font-size:14px}
 .sw{display:flex;flex-wrap:wrap;gap:8px}.sw .c{width:36px;height:36px;padding:0;border-radius:6px}.sw .cp{cursor:pointer;background:none;border:2px solid var(--ink)}.sw .c.on{outline:3px solid var(--ink);outline-offset:2px}
 #st{text-align:center}
+#hint{white-space:pre-line}
 #hud{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
 #prog{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.35}
 #pt{font-size:15px}
@@ -53,14 +54,15 @@ canvas{width:100%;max-width:600px;margin:0 auto;aspect-ratio:1;display:block;bor
 #adminBox{width:100%;max-width:440px;max-height:90%;overflow:auto;background:var(--bg);border:3px solid var(--ink);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:9px}
 #adminBox input,#adminBox select{width:100%;background:var(--board);color:var(--ink);border:2px solid var(--ink);border-radius:4px;padding:10px;font:inherit}
 #adminControls{display:flex;flex-direction:column;gap:8px}
-#adminRow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.adminRow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#adminOpen{align-self:flex-start;padding:4px 14px;font-size:13px}
+#adminBox label{display:flex;flex-direction:column;gap:4px;font-size:13px}
 #staminaHud{width:100%;max-width:600px;margin:0 auto;display:flex;flex-direction:column;gap:6px}
 #staminaTop{display:flex;justify-content:space-between;gap:8px;font-size:13px}
 #staminaBar{height:14px;border:2px solid var(--ink);background:#292929;border-radius:4px;overflow:hidden}
 #staminaFill{height:100%;width:100%;background:#00e878;transition:width .12s}
 #dashButton{background:#075d91;color:#fff;border-color:#51c7ff;width:100%;max-width:600px;margin:0 auto}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
 <main>
@@ -84,10 +86,10 @@ canvas{width:100%;max-width:600px;margin:0 auto;aspect-ratio:1;display:block;bor
 <button id="bk">Назад</button>
 </section>
 <section id="game" hidden>
+<button id="adminOpen" type="button">AP</button>
 <div class="row"><span id="s0"></span><span id="s1"></span></div>
-<button id="adminOpen" type="button">Админ-панель</button>
 <canvas id="cv" width="600" height="600"></canvas>
-<div id="staminaHud"><div id="staminaTop"><b>STAMINA</b><b><span id="staminaValue">270</span> / 270</b></div><div id="staminaBar"><div id="staminaFill"></div></div><button id="dashButton" type="button">DASH · 25 STAMINA</button></div>
+<div id="staminaHud"><div id="staminaTop"><b>STAMINA</b><b><span id="staminaValue">270</span> / <span id="staminaMaxValue">270</span></b></div><div id="staminaBar"><div id="staminaFill"></div></div><button id="dashButton" type="button">DASH · 25 STAMINA</button></div>
 <p id="st"></p>
 <div id="hud">
 <div id="prog"><button type="button" id="tree">🌳 Древо</button><b id="pt"></b><span id="pn"></span><div id="bar"><i id="fill"></i></div></div>
@@ -99,6 +101,7 @@ canvas{width:100%;max-width:600px;margin:0 auto;aspect-ratio:1;display:block;bor
 <div id="tr" hidden><div id="trb"></div></div>
 <div id="admin" hidden><div id="adminBox"></div></div>
 <script>
+
 const $=i=>document.getElementById(i),SC=8,VW=50,NX=41*SC,NY=30*SC,cv=$('cv'),cx=cv.getContext('2d');
 const TURN=85,VER='2.5';
 // Тестовая сборка (адрес содержит "hordtest"): версия с суффиксом и отдельные комнаты
@@ -111,14 +114,17 @@ for(let y=0;y<NY;y++)for(let x=0;x<NX;x++)FOODCELLS.push([x,y]);
 const isSea=()=>false;
 $('ver').textContent='v'+VER+(HT?'.hordtest':'');
 const AL='ABCDEFGHJKMNPQRSTUVWXYZ23456789',PRE=HT?'zmeyka-hordtest-':'zmeyka-';
-let role,peer,conn,G,tm=[],ME='',linked=0;const NM=['',''];
+let role,conn,G,tm=[],ME='',linked=0;const NM=['',''];
 const show=id=>['menu','net','game'].forEach(k=>$(k).hidden=k!=id);
 const rnd=n=>Math.floor(Math.random()*n);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
 try{$('nick').value=localStorage.nick||''}catch(e){}
 function nk(){const n=$('nick').value.trim().slice(0,12);if(!n){txt('mh','Введите ник, чтобы играть онлайн.');$('nick').focus();return ''}try{localStorage.nick=n}catch(e){}return n}
 const txt=(i,t)=>{$(i).textContent=t};
-const tx=o=>conn&&conn.open&&conn.send(o);
+// по relay снимки состояния отправляются не чаще 20 раз в секунду (публичные брокеры ограничивают частоту)
+const tx=o=>{const c=conn;if(!c||!c.open)return;
+ if(o.t==='s'&&c.slow){c.pend=o;if(!c.tm)c.tm=setTimeout(()=>{c.tm=0;const p=c.pend;c.pend=0;if(p&&c.open)c.send(p)},50);return}
+ c.send(o)};
 /* ---- цвета змеек (выбираются в меню, хранятся только на вашем устройстве) ---- */
 const COLORS=['#00a83b','#ff4545','#2f7bff','#ffb000','#b44dff','#00c8d7','#ff5fa8','#f2f2f2','#7bd11f','#ff7a1a','#1f2a8a','#8b4a2b','#000000','#7a7a7a'];
 const NP=COLORS.length;COLORS.push('#00ff99','#ff00cc'); // 2 своих слота: [NP] мой, [NP+1] врага
@@ -128,22 +134,22 @@ let cMe=ldc('cMe',0),cEn=ldc('cEn',1),PLAYER,ENEMY,PLAYER_GLOW;
 if(cMe==cEn)cEn=(cMe+1)%COLORS.length;
 const lite=c=>{const n=parseInt(c.slice(1),16),m=v=>Math.round(v+(255-v)*.35);return 'rgb('+m(n>>16)+','+m(n>>8&255)+','+m(n&255)+')'};
 function vars(){
-PLAYER=COLORS[cMe];ENEMY=COLORS[cEn];PLAYER_GLOW=lite(PLAYER);
-const r=document.documentElement.style;r.setProperty('--me',PLAYER);r.setProperty('--en',ENEMY);
-try{localStorage.cMe=cMe;localStorage.cEn=cEn;localStorage.cc0=COLORS[NP];localStorage.cc1=COLORS[NP+1]}catch(e){}
+ PLAYER=COLORS[cMe];ENEMY=COLORS[cEn];PLAYER_GLOW=lite(PLAYER);
+ const r=document.documentElement.style;r.setProperty('--me',PLAYER);r.setProperty('--en',ENEMY);
+ try{localStorage.cMe=cMe;localStorage.cEn=cEn;localStorage.cc0=COLORS[NP];localStorage.cc1=COLORS[NP+1]}catch(e){}
 }
 function applyColors(){
-vars();
-[['swMe',cMe,0],['swEn',cEn,1]].forEach(([id,sel,k])=>{$(id).innerHTML=COLORS.slice(0,NP).map((c,i)=>'<button type="button" class="c'+(i==sel?' on':'')+'" data-i="'+i+'" style="background:'+c+'" aria-label="Цвет '+(i+1)+'"></button>').join('')+
-'<input type="color" class="c cp'+(sel==NP+k?' on':'')+'" data-k="'+k+'" value="'+COLORS[NP+k]+'" aria-label="Свой цвет" title="Свой цвет">'});
+ vars();
+ [['swMe',cMe,0],['swEn',cEn,1]].forEach(([id,sel,k])=>{$(id).innerHTML=COLORS.slice(0,NP).map((c,i)=>'<button type="button" class="c'+(i==sel?' on':'')+'" data-i="'+i+'" style="background:'+c+'" aria-label="Цвет '+(i+1)+'"></button>').join('')+
+  '<input type="color" class="c cp'+(sel==NP+k?' on':'')+'" data-k="'+k+'" value="'+COLORS[NP+k]+'" aria-label="Свой цвет" title="Свой цвет">'});
 }
 // выбрали цвет, который уже занят другой змейкой — они меняются местами
 $('swMe').onclick=e=>{const i=e.target.dataset.i;if(i===undefined)return;if(+i==cEn)cEn=cMe;cMe=+i;applyColors()};
 $('swEn').onclick=e=>{const i=e.target.dataset.i;if(i===undefined)return;if(+i==cMe)cMe=cEn;cEn=+i;applyColors()};
 // свой цвет: палитра браузера; пока тянете ползунок, меню не перерисовываем
 [['swMe',0],['swEn',1]].forEach(([id,k])=>{
-$(id).oninput=e=>{if(e.target.dataset.k===undefined)return;COLORS[NP+k]=e.target.value;if(k==0)cMe=NP;else cEn=NP+1;vars()};
-$(id).onchange=e=>{if(e.target.dataset.k!==undefined)applyColors()};
+ $(id).oninput=e=>{if(e.target.dataset.k===undefined)return;COLORS[NP+k]=e.target.value;if(k==0)cMe=NP;else cEn=NP+1;vars()};
+ $(id).onchange=e=>{if(e.target.dataset.k!==undefined)applyColors()};
 });
 applyColors();
 const meIdx=()=>role=='guest'?1:0;
@@ -152,269 +158,463 @@ const meIdx=()=>role=='guest'?1:0;
 const LV=l=>{let b=0;for(let k=2;k<=10;k++)if(l>=(1<<k))b++;return b};
 const hasMut=(i,m)=>!!(G&&G.mu&&G.mu[i]&&G.mu[i].some(s=>s.m===m));
 const mult=i=>(1+.05*LV(G.s[i].length))*(hasMut(i,0)?1.4:1)*(hasMut(i,2)?1.1:1);
+const sizeMult=i=>1;
 const base=()=>Math.max(26,80-2.8*(G.sc[0]+G.sc[1]));
 const delay=i=>base()/mult(i)/(G&&G.dashUntil&&performance.now()<G.dashUntil[i]?2.2:1);
-const snap=()=>Object.assign({},G,{prev:0,anim:0,mu:G.mu.map(a=>a.map(s=>({m:s.m,e:0})))});
+const snap=()=>Object.assign({},G,{prev:0,anim:0,mu:G.mu.map(a=>a.map(s=>({m:s.m,r:0})))});
 
-/* ---- stamina: только дэш тратит, со временем восстанавливается ---- */
-const MAX_STAMINA=270;
-const REGEN_PER_SEC=25;
+/* ---- stamina and dash ---- */
+const maxStamina=i=>Math.max(70,270-Math.max(0,(G&&G.s[i]?G.s[i].length:1)-1));
 const dashCost=i=>hasMut(i,3)?12.5:25;
+function clampStamina(i){
+ if(!G||!G.stamina)return;
+ G.stamina[i]=Math.min(maxStamina(i),Math.max(0,G.stamina[i]??maxStamina(i)));
+}
 function dashPlayer(i){
-if(!G||G.over||!G.stamina)return false;
-const cost=dashCost(i);
-if(G.stamina[i]<cost)return false;
-G.stamina[i]-=cost;
-G.dashUntil[i]=performance.now()+420;
-tx({t:'s',G:snap()});ui();return true;
+ if(!G||G.over||!G.stamina)return false;
+ clampStamina(i);const cost=dashCost(i);
+ if(G.stamina[i]<cost)return false;
+ G.stamina[i]-=cost;G.dashUntil[i]=performance.now()+420;
+ tx({t:'s',G:snap()});ui();return true;
 }
 function requestDash(){
-if(!G||G.over)return;
-if(role==='guest'){tx({t:'dash'});return;}
-dashPlayer(0);
+ if(!G||G.over)return;
+ if(role==='guest'){tx({t:'dash'});return;}
+ dashPlayer(0);
 }
 $('dashButton').onclick=requestDash;
-addEventListener('keydown',e=>{if(e.code==='Space'&&!$('game').hidden&&!e.repeat){e.preventDefault();requestDash()}});
+const typing=e=>!$('admin').hidden||/^(INPUT|SELECT|TEXTAREA)$/.test((e.target&&e.target.tagName)||'');
+addEventListener('keydown',e=>{if(typing(e))return;if(e.code==='Space'&&!$('game').hidden&&!e.repeat){e.preventDefault();requestDash()}});
 
 /* ---- симуляция (хост / одиночная игра) ---- */
 function init(n){
-const A=[[12*SC+2,22*SC+2,1,0],[36*SC+2,22*SC+2,-1,0]].slice(0,n);
-G={n,s:A.map(([x,y,a,b])=>[[x,y],[x-a,y-b],[x-2*a,y-2*b]]),d:A.map(a=>[a[2],a[3]]),nd:A.map(a=>[a[2],a[3]]),sc:[0,0],gr:[0,0],over:0,w:-1,prev:[],anim:[],f:[],mu:A.map(()=>[0,1,2,3].map(()=>({m:-1,e:0}))),mx:A.map(()=>3),stamina:Array(n).fill(MAX_STAMINA),staminaTick:Array(n).fill(performance.now()),dashUntil:Array(n).fill(0)};
-food();
+ const A=[[12*SC+2,22*SC+2,1,0],[36*SC+2,22*SC+2,-1,0]].slice(0,n);
+ G={n,s:A.map(([x,y,a,b])=>[[x,y],[x-a,y-b],[x-2*a,y-2*b]]),d:A.map(a=>[a[2],a[3]]),nd:A.map(a=>[a[2],a[3]]),sc:[0,0],gr:[0,0],over:0,w:-1,prev:[],anim:[],f:[],mu:A.map(()=>[0,1,2,3].map(()=>({m:-1,e:0}))),mx:A.map(()=>3),stamina:Array(n).fill(270),dashUntil:Array(n).fill(0)};
+ food();
 }
 function food(){while(G.f.length<G.n*3){let p;do{const c=FOODCELLS[rnd(FOODCELLS.length)];p=[c[0],c[1]]}while(G.s.some(s=>s.some(c=>same(c,p)))||G.f.some(f=>same(f,p)));G.f.push(p)}}
 function turn(i,x,y){
-const d=G.d[i],m=Math.hypot(x,y);
-if(!m)return;
-x/=m;y/=m;
-const dot=Math.max(-1,Math.min(1,d[0]*x+d[1]*y));
-const angle=Math.acos(dot);
-const limit=TURN*Math.PI/180;
-if(angle<=limit)G.nd[i]=[x,y];
-else{
-const sign=d[0]*y-d[1]*x>=0?1:-1;
-const a=sign*limit,ca=Math.cos(a),sa=Math.sin(a);
-G.nd[i]=[d[0]*ca-d[1]*sa,d[0]*sa+d[1]*ca];
-}
+  const d=G.d[i],m=Math.hypot(x,y);
+  if(!m)return;
+  x/=m;y/=m;
+  // Максимальный поворот относительно текущего курса: TURN градусов.
+  const dot=Math.max(-1,Math.min(1,d[0]*x+d[1]*y));
+  const angle=Math.acos(dot);
+  const limit=TURN*Math.PI/180;
+  if(angle<=limit)G.nd[i]=[x,y];
+  else{
+    const sign=d[0]*y-d[1]*x>=0?1:-1;
+    const a=sign*limit,ca=Math.cos(a),sa=Math.sin(a);
+    G.nd[i]=[d[0]*ca-d[1]*sa,d[0]*sa+d[1]*ca];
+  }
 }
 const near=(a,b,r)=>{let dx=Math.abs(a[0]-b[0]),dy=Math.abs(a[1]-b[1]);dx=Math.min(dx,NX-dx);dy=Math.min(dy,NY-dy);return dx*dx+dy*dy<r*r};
 const cell=p=>[Math.floor(((p[0]%NX)+NX)%NX+.5)%NX,Math.floor(((p[1]%NY)+NY)%NY+.5)%NY];
 const same=(a,b)=>{const A=cell(a),B=cell(b);return A[0]===B[0]&&A[1]===B[1]};
-// Каждая змея ходит по собственному таймеру.
+// Каждая змея ходит по собственному таймеру: так бонус скорости у каждой свой.
 function step(i){
-const j=1-i,q=G.s,s=q[i],gr=G.gr;
-const now=performance.now();
-const elapsed=Math.min(.5,Math.max(0,(now-(G.staminaTick[i]||now))/1000));
-G.staminaTick[i]=now;
-// Stamina не тратится сама по себе — только на дэш. Регенерирует до максимума.
-G.stamina[i]=Math.min(MAX_STAMINA,(G.stamina[i]??MAX_STAMINA)+REGEN_PER_SEC*elapsed);
-G.prev[i]=s.map(c=>c.slice());G.anim[i]=now;
-G.d[i]=G.nd[i];
-const h=[(s[0][0]+G.d[i][0]+NX)%NX,(s[0][1]+G.d[i][1]+NY)%NY];
-const fi=G.f.findIndex(f=>same(h,f)),ate=fi>=0,grow=ate||gr[i]>0,dead=[0,0];
-if((grow?s:s.slice(0,-1)).some(c=>near(c,h,.7)))dead[i]=1;
-if(SEA_KILLS&&isSea(h))dead[i]=1;
-if(G.n>1&&!dead[i]){
-const o=q[j],a=s.length,b=o.length;
-if(near(h,o[0],.8)){
-if(a<=b)dead[i]=1;
-if(b<=a)dead[j]=1;
-} else {
-const jg=gr[j]>0;
-const k=o.findIndex((c,x)=>near(c,h,.75)&&(x<o.length-1||jg));
-if(k>=0){const t=Math.max(k,1),n=o.length-t;o.splice(t);gr[i]+=n;G.sc[i]+=n}
-}
-}
-if(!dead[i]){
-s.unshift(h);
-if(ate)G.sc[i]++;else if(gr[i]>0)gr[i]--;else s.pop();
-if(ate){G.f.splice(fi,1);if(hasMut(i,1))gr[i]++;if(hasMut(i,2)&&G.sc[i]%10===0)gr[i]++;food()}
-G.mx[i]=Math.max(G.mx[i],s.length);
-}
-if(dead[0]||dead[1]){
-G.over=1;G.x=dead;const[a,b]=G.sc;
-G.w=G.n<2?-1:(dead[0]&&dead[1]?(a>b?0:(b>a?1:-1)):(dead[0]?1:0));
-}
+ const j=1-i,q=G.s,s=q[i],gr=G.gr;
+ // Stamina does not drain over time. Its maximum depends only on snake length.
+ clampStamina(i);
+ G.prev[i]=s.map(c=>c.slice());G.anim[i]=performance.now();
+ G.d[i]=G.nd[i];
+ const h=[(s[0][0]+G.d[i][0]+NX)%NX,(s[0][1]+G.d[i][1]+NY)%NY];
+ const fi=G.f.findIndex(f=>same(h,f)),ate=fi>=0,grow=ate||gr[i]>0,dead=[0,0];
+ if((grow?s:s.slice(0,-1)).some(c=>near(c,h,.7)))dead[i]=1;
+ if(SEA_KILLS&&isSea(h))dead[i]=1;
+ if(G.n>1&&!dead[i]){
+  const o=q[j],a=s.length,b=o.length;
+  if(near(h,o[0],.8)){
+   if(a<=b)dead[i]=1;
+   if(b<=a)dead[j]=1;
+  } else {
+   const jg=gr[j]>0;
+   const k=o.findIndex((c,x)=>near(c,h,.75)&&(x<o.length-1||jg));
+   if(k>=0){const t=Math.max(k,1),n=o.length-t;o.splice(t);gr[i]+=n;G.sc[i]+=n}
+  }
+ }
+ if(!dead[i]){
+  s.unshift(h);
+  if(ate)G.sc[i]++;else if(gr[i]>0)gr[i]--;else s.pop();
+  if(ate){G.f.splice(fi,1);if(hasMut(i,1))gr[i]++;if(hasMut(i,2)&&G.sc[i]%10===0)gr[i]++;food()}
+  G.mx[i]=Math.max(G.mx[i],s.length);
+ }
+ clampStamina(i);if(G.n>1)clampStamina(j);
+ if(dead[0]||dead[1]){
+  G.over=1;G.x=dead;const[a,b]=G.sc;
+  G.w=G.n<2?-1:(dead[0]&&dead[1]?(a>b?0:(b>a?1:-1)):(dead[0]?1:0));
+ }
 }
 function stopAll(){tm.forEach(clearTimeout);tm=[]}
 function tick(i){
-if(!G||G.over)return;
-step(i);tx({t:'s',G:snap()});draw();ui();
-if(!G.over)tm[i]=setTimeout(()=>tick(i),delay(i));
+ if(!G||G.over)return;
+ step(i);tx({t:'s',G:snap()});draw();ui();
+ if(!G.over)tm[i]=setTimeout(()=>tick(i),delay(i));
 }
 function start(){
-stopAll();$('tr').hidden=true;pick=-1;init(conn&&conn.open?2:1);tx({t:'s',G:snap()});draw();ui();
-for(let i=0;i<G.n;i++)tm[i]=setTimeout(()=>tick(i),delay(i));
+ stopAll();$('tr').hidden=true;pick=-1;init(conn&&conn.open?2:1);tx({t:'s',G:snap()});draw();ui();
+ for(let i=0;i<G.n;i++)tm[i]=setTimeout(()=>tick(i),delay(i));
 }
 
 /* ---- отрисовка ---- */
 const pr=document.createElement('i');pr.hidden=true;document.body.appendChild(pr);
+const col=k=>{pr.style.color='var('+k+')';return getComputedStyle(pr).color};
 function draw(){
-const view=G&&hasMut(meIdx(),2)?VW*1.1:VW,S=cv.width/view,W=cv.width;
-cx.globalAlpha=1;cx.globalCompositeOperation='source-over';cx.shadowBlur=0;cx.shadowColor='transparent';
-const me=meIdx(),now=performance.now();
-const P=(i,k)=>{
-const s=G.s[i],[x,y]=s[k],an=G.anim&&G.anim[i];
-const pg=an?Math.min(1,(now-an)/Math.max(1,delay(i))):1,ease=1-Math.pow(1-pg,3);
-const old=(G.prev&&G.prev[i])||s,from=old[Math.max(0,k-1)]||[x,y];
-let dx=x-from[0],dy=y-from[1];
-if(dx>NX/2)dx-=NX;if(dx< -NX/2)dx+=NX;
-if(dy>NY/2)dy-=NY;if(dy< -NY/2)dy+=NY;
-return [from[0]+dx*ease,from[1]+dy*ease];
-};
-const hp=G&&G.s[me]?P(me,0):[12*SC+2,22*SC+2];
-const cam=[hp[0]+.5,hp[1]+.5];
-const wrap=(d,n)=>((d+n/2)%n+n)%n-n/2;
-const R=(x,y)=>[(wrap(x+.5-cam[0],NX)+view/2)*S,(wrap(y+.5-cam[1],NY)+view/2)*S];
-cx.fillStyle='#000';cx.fillRect(0,0,W,W);
-if(!G)return;
-const fp=G.f.map(f=>R(f[0],f[1])),r=S*(.30+.08*Math.sin(now/180));
-let seen=0;
-fp.forEach(([px,py])=>{
-if(px>-S&&px<W+S&&py>-S&&py<W+S){
-seen=1;cx.save();cx.translate(px,py);cx.rotate(Math.PI/4);cx.fillStyle='#ffd84a';
-cx.shadowColor='#ffd84a';cx.shadowBlur=12;cx.fillRect(-r*.72,-r*.72,r*1.44,r*1.44);cx.restore();
-}
-});
-if(!seen&&fp.length){
-const [px,py]=fp.reduce((a,b)=>Math.hypot(a[0]-W/2,a[1]-W/2)<Math.hypot(b[0]-W/2,b[1]-W/2)?a:b);
-const dx=px-W/2,dy=py-W/2,m=W/2-16,t=Math.min(m/Math.abs(dx||1e-9),m/Math.abs(dy||1e-9));
-cx.save();cx.translate(W/2+dx*t,W/2+dy*t);cx.rotate(Math.atan2(dy,dx));
-cx.fillStyle='#ffd84a';cx.strokeStyle='rgba(8,24,6,.9)';cx.lineWidth=2;
-cx.beginPath();cx.moveTo(10,0);cx.lineTo(-7,-8);cx.lineTo(-7,8);cx.closePath();cx.fill();cx.stroke();cx.restore();
-}
-G.s.forEach((s,i)=>{
-const mine=i===me,color=mine?PLAYER:ENEMY;
-cx.globalAlpha=(G.over&&G.x&&G.x[i])?0.35:1;
-for(let k=s.length-1;k>=0;k--){
-const [ax,ay]=P(i,k),[xx,yy]=R(ax,ay);
-if(xx<-S||xx>W+S||yy<-S||yy>W+S)continue;
-const size=(k===0?S*.9:S*.78),rad=(k===0?S*.28:S*.22);
-const snakeColor=hasMut(i,2)?'#ffffff':color;
-cx.fillStyle=snakeColor;cx.shadowColor=hasMut(i,2)?'#ffffff':(mine?PLAYER_GLOW:ENEMY);cx.shadowBlur=mine?(k===0?8:4):(k===0?5:2);
-cx.beginPath();
-if(typeof cx.roundRect==='function')cx.roundRect(xx-size/2,yy-size/2,size,size,rad);
-else cx.rect(xx-size/2,yy-size/2,size,size);
-cx.fill();cx.shadowBlur=0;cx.lineWidth=1;cx.strokeStyle='rgba(8,24,6,.9)';cx.stroke();
-if(k===0){
-cx.fillStyle='#101010';
-cx.beginPath();cx.arc(xx+(i===0?S*.16:-S*.16),yy-S*.1,S*.13,0,Math.PI*2);cx.fill();
-}
-}
-});
-cx.globalAlpha=1;cx.shadowBlur=0;
+  const view=G&&hasMut(meIdx(),2)?VW*1.1:VW,S=cv.width/view,W=cv.width,bg='#000';
+  cx.globalAlpha=1;cx.globalCompositeOperation='source-over';cx.shadowBlur=0;cx.shadowColor='transparent';
+  const me=meIdx(),now=performance.now();
+  // позиция сегмента k змейки i (в клетках, с плавной анимацией)
+  const P=(i,k)=>{
+    const s=G.s[i],[x,y]=s[k],an=G.anim&&G.anim[i];
+    const pg=an?Math.min(1,(now-an)/Math.max(1,delay(i))):1,ease=1-Math.pow(1-pg,3);
+    const old=(G.prev&&G.prev[i])||s,from=old[Math.max(0,k-1)]||[x,y];
+    let dx=x-from[0],dy=y-from[1];
+    if(dx>NX/2)dx-=NX;if(dx< -NX/2)dx+=NX;
+    if(dy>NY/2)dy-=NY;if(dy< -NY/2)dy+=NY;
+    return [from[0]+dx*ease,from[1]+dy*ease];
+  };
+  // камера: центр на голове моей змейки, видно VW×VW клеток
+  const hp=G&&G.s[me]?P(me,0):[12*SC+2,22*SC+2];
+  const cam=[hp[0]+.5,hp[1]+.5],x0=cam[0]-view/2,y0=cam[1]-view/2;
+  const wrap=(d,n)=>((d+n/2)%n+n)%n-n/2;
+  const R=(x,y)=>[(wrap(x+.5-cam[0],NX)+view/2)*S,(wrap(y+.5-cam[1],NY)+view/2)*S];
+  // Чёрный фон арены; края поля зациклены.
+  cx.fillStyle='#000';cx.fillRect(0,0,W,W);
+  if(!G)return;
+  // еда (+ стрелка к ближайшей, если ни одной не видно)
+  const fp=G.f.map(f=>R(f[0],f[1])),r=S*(.30+.08*Math.sin(now/180));
+  let seen=0;
+  fp.forEach(([px,py])=>{
+    if(px>-S&&px<W+S&&py>-S&&py<W+S){
+      seen=1;cx.save();cx.translate(px,py);cx.rotate(Math.PI/4);cx.fillStyle='#ffd84a';
+      cx.shadowColor='#ffd84a';cx.shadowBlur=12;cx.fillRect(-r*.72,-r*.72,r*1.44,r*1.44);cx.restore();
+    }
+  });
+  if(!seen&&fp.length){
+    const [px,py]=fp.reduce((a,b)=>Math.hypot(a[0]-W/2,a[1]-W/2)<Math.hypot(b[0]-W/2,b[1]-W/2)?a:b);
+    const dx=px-W/2,dy=py-W/2,m=W/2-16,t=Math.min(m/Math.abs(dx||1e-9),m/Math.abs(dy||1e-9));
+    cx.save();cx.translate(W/2+dx*t,W/2+dy*t);cx.rotate(Math.atan2(dy,dx));
+    cx.fillStyle='#ffd84a';cx.strokeStyle='rgba(8,24,6,.9)';cx.lineWidth=2;
+    cx.beginPath();cx.moveTo(10,0);cx.lineTo(-7,-8);cx.lineTo(-7,8);cx.closePath();cx.fill();cx.stroke();cx.restore();
+  }
+  G.s.forEach((s,i)=>{
+    const mine=i===me,color=mine?PLAYER:ENEMY;
+    cx.globalAlpha=(G.over&&G.x&&G.x[i])?0.35:1;
+    for(let k=s.length-1;k>=0;k--){
+      const [ax,ay]=P(i,k),[xx,yy]=R(ax,ay);
+      if(xx<-S||xx>W+S||yy<-S||yy>W+S)continue;
+      const size=(k===0?S*.9:S*.78),rad=(k===0?S*.28:S*.22);
+      const snakeColor=hasMut(i,2)?'#ffffff':color;
+      cx.fillStyle=snakeColor;cx.shadowColor=hasMut(i,2)?'#ffffff':(mine?PLAYER_GLOW:ENEMY);cx.shadowBlur=mine?(k===0?8:4):(k===0?5:2);
+      cx.beginPath();
+      if(typeof cx.roundRect==='function')cx.roundRect(xx-size/2,yy-size/2,size,size,rad);
+      else cx.rect(xx-size/2,yy-size/2,size,size);
+      cx.fill();cx.shadowBlur=0;cx.lineWidth=1;cx.strokeStyle='rgba(8,24,6,.9)';cx.stroke();
+      if(k===0){
+        cx.fillStyle='#101010';
+        cx.beginPath();cx.arc(xx+(i===0?S*.16:-S*.16),yy-S*.1,S*.13,0,Math.PI*2);cx.fill();
+      }
+    }
+  });
+  cx.globalAlpha=1;cx.shadowBlur=0;
 }
 function animate(){draw();requestAnimationFrame(animate)}
 
 function ui(){
-const me=meIdx(),two=G?G.n>1:role!='solo',L=i=>two?esc(NM[i]||(i==me?'Вы':'Друг')):'Счёт';
-const mk=i=>'<span class="m'+(i==me?'':' o')+'"></span>';
-$('s0').innerHTML=(adminUnlocked?'<b>АП</b> ':'')+mk(0)+L(0)+': '+(G?G.sc[0]:0);
-$('s1').innerHTML=two?mk(1)+L(1)+': '+(G?G.sc[1]:0):'';
-txt('st',!G?'Press Start':!G.over?'Joystick, arrows or WASD · Space to dash':G.n<2?'Game Over':G.w<0?'Draw':G.w==me?'You Win!':'You Lose');
-$('go').hidden=!!G&&!G.over;txt('go',G?'Реванш':'Старт');
-const len=G&&G.s[me]?G.s[me].length:0,lv=LV(len),max=len>=1024;
-let nx=4;while(nx<=len&&nx<1024)nx*=2;
-const pv=nx/2,pct=max?100:Math.max(0,Math.min(100,(len-pv)/(nx-pv)*100));
-txt('len','Length: '+(len||'—'));
-txt('pt','SPEED: +'+lv*5+'%'+(hasMut(me,0)?' · Adrenaline ×1.4':hasMut(me,2)?' · Albinon ×1.1':''));
-// Stamina: регенерирует, тратится только на дэш
-const staminaRaw=G&&G.stamina?(G.stamina[me]??MAX_STAMINA):MAX_STAMINA;
-const cost=G?dashCost(me):25;
-txt('staminaValue',Math.floor(staminaRaw));
-$('staminaFill').style.width=Math.max(0,Math.min(100,staminaRaw/MAX_STAMINA*100))+'%';
-$('dashButton').textContent='DASH · '+(cost%1===0?cost:cost.toFixed(1))+' STAMINA';
-$('dashButton').disabled=!G||G.over||staminaRaw<cost;
-const av=!!(G&&G.mu&&G.mu[me]&&G.mu[me].some((s,k)=>s.m<0&&G.mx[me]>=TH[k])),tl='🌳 MUTATIONS'+(av?' •':'');if($('tree').textContent!==tl)$('tree').textContent=tl;
-txt('pn',max?'All speed bonuses unlocked':'Next +5% at length '+nx+' (now '+len+')');
-$('fill').style.width=pct+'%';
+ const me=meIdx(),two=G?G.n>1:role!='solo',L=i=>two?esc(NM[i]||(i==me?'Вы':'Друг')):'Счёт';
+ const mk=i=>'<span class="m'+(i==me?'':' o')+'"></span>';
+ $('s0').innerHTML=(adminUnlocked?'<b>АП</b> ':'')+mk(0)+L(0)+': '+(G?G.sc[0]:0);
+ $('s1').innerHTML=two?mk(1)+L(1)+': '+(G?G.sc[1]:0):'';
+ txt('st',!G?'Press Start':!G.over?'Joystick, arrows or WASD · Space to dash':G.n<2?'Game Over':G.w<0?'Draw':G.w==me?'You Win!':'You Lose');
+ $('go').hidden=!!G&&!G.over;txt('go',G?'Реванш':'Старт');
+ /* длина и прогресс бонусов скорости */
+ const len=G&&G.s[me]?G.s[me].length:0,lv=LV(len),max=len>=1024;
+ let nx=4;while(nx<=len&&nx<1024)nx*=2;
+ const pv=nx/2,pct=max?100:Math.max(0,Math.min(100,(len-pv)/(nx-pv)*100));
+ txt('len','Length: '+(len||'—'));
+ txt('pt','SPEED: +'+lv*5+'%'+(hasMut(me,0)?' · Adrenaline ×1.4':hasMut(me,2)?' · Albinon ×1.1':''));
+ if(G)clampStamina(me);
+ const stamina=G&&G.stamina?Math.floor(G.stamina[me]??270):270;
+ const staminaMax=G?maxStamina(me):270,cost=G?dashCost(me):25;
+ txt('staminaValue',stamina);
+ txt('staminaMaxValue',staminaMax);
+ $('staminaFill').style.width=Math.max(0,Math.min(100,stamina/Math.max(1,staminaMax)*100))+'%';
+ $('dashButton').textContent='DASH · '+cost+' STAMINA';
+ $('dashButton').disabled=!G||G.over||stamina<cost;
+ const av=!!(G&&G.mu&&G.mu[me]&&G.mu[me].some((s,k)=>s.m<0&&G.mx[me]>=TH[k])),tl='🌳 MUTATIONS'+(av?' •':'');if($('tree').textContent!==tl)$('tree').textContent=tl;
+ txt('pn',max?'All speed bonuses unlocked':'Next +5% at length '+nx+' (now '+len+')');
+ $('fill').style.width=pct+'%';
 }
 
-/* ---- сеть: PeerJS (общий сервер знакомства, дальше напрямую) ---- */
-function setup(c,busy){
-conn=c;
-// Отправляем имя в любом случае: если соединение уже открыто (бывает с host-стороны),
-// 'open' может не сработать — это главный баг прошлой версии.
-const sendName=()=>{try{c.send({t:'n',n:ME})}catch(e){}};
-if(c.open)sendName();
-c.on('open',sendName);
-c.on('data',m=>{
-if(m.t=='busy'){try{c.close()}catch(e){}conn=null;busy&&busy();return;}
-if(m.t=='n'){
-NM[role=='host'?1:0]=String(m.n||'').slice(0,12);
-NM[role=='host'?0:1]=ME;
-linked=1;G=null;show('game');ui();draw();return;
+/* ---- сеть v3 ----
+   Два канала пробуются одновременно, играет тот, что соединился первым:
+   1) relay: MQTT по WebSocket через публичные брокеры (проходит любой NAT и мобильный интернет);
+   2) WebRTC (PeerJS): напрямую между браузерами, меньше задержка.
+   Какой канал выиграл, написано рядом с версией. */
+const QS=new URLSearchParams(location.search);
+const NET=QS.get('net')||'both',JT=+QS.get('jt')||20000;
+const BROKERS=QS.get('mqtt')?QS.get('mqtt').split(','):['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt','wss://test.mosquitto.org:8081'];
+const TOP='zmk3/'+(HT?'t/':'');
+const ICE=[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:global.stun.twilio.com:3478'},
+ {urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turns:openrelay.metered.ca:443?transport=tcp'],username:'openrelayproject',credential:'openrelayproject'}];
+const PCFG=QS.get('peerhost')?{host:QS.get('peerhost'),port:+QS.get('peerport')||9000,path:'/',secure:false}:{config:{iceServers:ICE}};
+const brName=u=>{try{const x=new URL(u);return x.hostname=='localhost'?'localhost:'+x.port:x.hostname.replace(/^(broker|test|public|mqtt)\./,'').split('.')[0]}catch(e){return u}};
+const CODE_RE=/^[A-Z0-9]{5}$/;
+
+/* статус каналов для подсказки на экране */
+const NS={};let nsHead='',nsOn=0;
+const renderNS=()=>{if(!nsOn)return;const l=Object.entries(NS).map(([k,v])=>k+' '+v).join(' · ');txt('hint',nsHead+(l?'\n['+l+']':''))};
+const nstat=(k,v)=>{NS[k]=v;renderNS()};
+const nsReset=h=>{Object.keys(NS).forEach(k=>delete NS[k]);nsHead=h;nsOn=1;renderNS()};
+
+/* единый интерфейс канала: send / close / bind(обработчик) / onclose / open */
+function Link(kind,send,close,label){
+ const l={kind,label,open:true,slow:kind==='relay',q:[],h:null,onclose:null,pend:0,tm:0,
+  send:o=>{if(l.open)send(o)},
+  close:()=>{if(!l.open)return;l.open=false;try{close()}catch(e){}},
+  dead:()=>{if(!l.open)return;l.open=false;l.onclose&&l.onclose()},
+  deliver:m=>{if(l.h)l.h(m);else l.q.push(m)},
+  bind:h=>{l.h=h;l.q.splice(0).forEach(h)}};
+ return l;
 }
-if(m.t=='s'){
-const o=G&&G.s&&!G.over?G:null,t=performance.now();
-m.G.prev=[];m.G.anim=[];
-(m.G.s||[]).forEach((s,i)=>{
-const os=o&&o.s[i];
-if(os&&(os[0][0]!==s[0][0]||os[0][1]!==s[0][1])){m.G.prev[i]=os.map(p=>p.slice());m.G.anim[i]=t}
-else{m.G.prev[i]=o&&o.prev?o.prev[i]:undefined;m.G.anim[i]=o&&o.anim?o.anim[i]:0}
-});
-if(m.G.mu)m.G.mu=m.G.mu.map(a=>a.map(s=>({m:s.m,e:0})));
-// Совместимость со старым состоянием
-if(!m.G.stamina)m.G.stamina=Array(m.G.n).fill(MAX_STAMINA);
-if(!m.G.staminaTick)m.G.staminaTick=Array(m.G.n).fill(performance.now());
-if(!m.G.dashUntil)m.G.dashUntil=Array(m.G.n).fill(0);
-G=m.G;draw();ui();return;
+
+/* ---- минимальный MQTT 3.1.1 клиент по WebSocket (QoS 0), без внешних библиотек ---- */
+function Mq(url){
+ const m={ready:null,onmsg:null,onclose:null,gone:false,ws:null};
+ const cid='zmk'+Math.random().toString(36).slice(2,12),te=new TextEncoder(),td=new TextDecoder(),cb={};
+ let buf=new Uint8Array(0),pid=1,ping=0,to=0;
+ const S=s=>{const b=te.encode(s);return [b.length>>8,b.length&255,...b]};
+ const RL=n=>{const a=[];do{const d=n%128;n=Math.floor(n/128);a.push(n>0?d|128:d)}while(n>0);return a};
+ const P=(h,body)=>{const r=RL(body.length),o=new Uint8Array(1+r.length+body.length);o[0]=h;o.set(r,1);o.set(body,1+r.length);return o};
+ const raw=a=>{if(m.ws&&m.ws.readyState===1)m.ws.send(a)};
+ const gone=()=>{if(m.gone)return;m.gone=true;clearInterval(ping);clearTimeout(to);m.onclose&&m.onclose()};
+ m.ready=new Promise((ok,no)=>{
+  let done=0;const fail=e=>{if(!done){done=1;no(e)}};
+  let ws;try{ws=new WebSocket(url,'mqtt')}catch(e){fail(e);setTimeout(gone,0);return}
+  m.ws=ws;ws.binaryType='arraybuffer';
+  to=setTimeout(()=>{fail(new Error('timeout'));try{ws.close()}catch(e){}},7000);
+  ws.onopen=()=>raw(P(0x10,new Uint8Array([0,4,77,81,84,84,4,2,0,30,...S(cid)])));
+  ws.onerror=()=>fail(new Error('ws'));
+  ws.onclose=()=>{fail(new Error('closed'));gone()};
+  ws.onmessage=e=>{
+   const d=new Uint8Array(e.data),n=new Uint8Array(buf.length+d.length);n.set(buf);n.set(d,buf.length);buf=n;
+   for(;;){
+    if(buf.length<2)break;
+    let mul=1,len=0,i=1,b=0,inc=0;
+    do{if(i>=buf.length||i>4){inc=1;break}b=buf[i++];len+=(b&127)*mul;mul*=128}while(b&128);
+    if(inc||buf.length<i+len)break;
+    const h=buf[0],body=buf.subarray(i,i+len);buf=buf.subarray(i+len);
+    const t=h>>4;
+    if(t===2){
+     if(body[1]===0){clearTimeout(to);if(!done){done=1;ok(m)}clearInterval(ping);ping=setInterval(()=>raw(new Uint8Array([0xC0,0])),20000)}
+     else{fail(new Error('connack '+body[1]));try{ws.close()}catch(x){}}
+    }else if(t===9){const id=(body[0]<<8)|body[1];if(cb[id]){cb[id]();delete cb[id]}}
+    else if(t===3){
+     const tl=(body[0]<<8)|body[1],qos=(h>>1)&3;let off=2+tl;
+     const topic=td.decode(body.subarray(2,off));if(qos)off+=2;
+     if(m.onmsg)m.onmsg(topic,td.decode(body.subarray(off)));
+    }
+   }
+  };
+ });
+ m.sub=topic=>new Promise((ok,no)=>{const id=pid++;cb[id]=ok;raw(P(0x82,new Uint8Array([id>>8,id&255,...S(topic),0])));setTimeout(()=>{if(cb[id]){delete cb[id];no(new Error('suback'))}},6000)});
+ m.pub=(topic,str)=>{const tb=S(topic),pb=te.encode(str),body=new Uint8Array(tb.length+pb.length);body.set(tb);body.set(pb,tb.length);raw(P(0x30,body))};
+ m.close=()=>{try{raw(new Uint8Array([0xE0,0]))}catch(e){}try{m.ws&&m.ws.close()}catch(e){}setTimeout(gone,50)};
+ return m;
 }
-if(role=='host'&&m.t=='d'&&G)return turn(1,m.v[0],m.v[1]);
-if(role=='host'&&m.t=='m'&&G)return choose(1,m.k,m.m);
-if(role=='host'&&m.t=='dash'&&G)return dashPlayer(1);
-if(role=='host'&&m.t=='admin'&&G)return adminApply(m.action,m.target,m.slot,m.mutation,m.amount);
-if(role=='host'&&m.t=='r')return start();
-});
-c.on('close',lost);c.on('error',lost);
+
+/* ---- PeerJS грузится только когда нужен, с запасными CDN ---- */
+let peerP=null;
+function loadPeer(){
+ if(window.Peer)return Promise.resolve();
+ if(peerP)return peerP;
+ const urls=QS.get('peerlib')?[QS.get('peerlib')]:['https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js','https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js','https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js'];
+ const one=u=>new Promise((ok,no)=>{const s=document.createElement('script');s.src=u;const t=setTimeout(()=>{s.remove();no()},6000);s.onload=()=>{clearTimeout(t);window.Peer?ok():no()};s.onerror=()=>{clearTimeout(t);s.remove();no()};document.head.appendChild(s)});
+ return peerP=urls.reduce((p,u)=>p.catch(()=>one(u)),Promise.reject());
 }
-function lost(){
-stopAll();
-conn=null;G=null;
-txt('st','Соединение потеряно. Нажмите «Выйти»');
-$('go').hidden=true;
-draw();ui();
+
+/* ---- хост: ждём гостя по коду на всех каналах сразу ---- */
+function listen(code,onLink,onReady){
+ const c={stop:false,win:null,gid:null,mqs:[],peer:null,ready:0};
+ const rdy=()=>{c.ready=1;onReady&&onReady()};
+ c.halt=keep=>{c.stop=true;c.mqs.slice().forEach(q=>{if(q!==keep)q.close()});if(c.peer&&keep!=='peer'){try{c.peer.destroy()}catch(e){}}};
+ if(NET!=='peer')BROKERS.forEach(u=>{
+  const key='relay '+brName(u);
+  const run=()=>{
+   if(c.stop)return;
+   const mq=Mq(u);c.mqs.push(mq);nstat(key,'…');
+   let link=null;
+   mq.onclose=()=>{
+    c.mqs=c.mqs.filter(q=>q!==mq);
+    if(link)link.dead();
+    else if(!c.stop){nstat(key,'✗');setTimeout(run,3000)}
+   };
+   mq.ready.then(()=>mq.sub(TOP+code+'/h')).then(()=>{nstat(key,'✓');rdy()}).catch(()=>mq.close());
+   mq.onmsg=(t,s)=>{
+    let o;try{o=JSON.parse(s)}catch(e){return}
+    if(!o)return;
+    if(o.t==='hello'&&o.g){
+     const gt=TOP+code+'/g/'+o.g;
+     if(!c.win){c.win=mq;c.gid=o.g;c.halt(mq);link=Link('relay',x=>mq.pub(gt,JSON.stringify(x)),()=>mq.close(),'relay '+brName(u));mq.pub(gt,'{"t":"ack"}');onLink(link)}
+     else if(c.win===mq&&c.gid===o.g)mq.pub(gt,'{"t":"ack"}');
+     else mq.pub(gt,'{"t":"busy"}');
+    }else if(o.g&&o.d&&c.win===mq&&o.g===c.gid&&link)link.deliver(o.d);
+   };
+  };
+  run();
+ });
+ if(NET!=='mqtt')loadPeer().then(()=>{
+  if(c.stop)return;
+  const p=c.peer=new Peer(PRE+code,PCFG);
+  p.on('open',()=>{nstat('WebRTC','✓');rdy()});
+  p.on('disconnected',()=>{if(!c.stop){try{p.reconnect()}catch(e){}}});
+  p.on('error',e=>nstat('WebRTC','✗ '+e.type));
+  p.on('connection',cn=>cn.on('open',()=>{
+   if(c.win){cn.send({t:'busy'});setTimeout(()=>cn.close(),400);return}
+   c.win='peer';c.halt('peer');
+   const l=Link('peer',x=>cn.send(x),()=>cn.close(),'WebRTC');
+   cn.on('data',m=>l.deliver(m));cn.on('close',()=>l.dead());cn.on('error',()=>l.dead());
+   onLink(l);
+  }));
+ }).catch(()=>nstat('WebRTC','✗ нет библиотеки'));
+ return c;
 }
+
+/* ---- гость: стучимся в комнату по всем каналам сразу, берём первый ответивший ---- */
+function dial(code,ms,o){
+ o=o||{};
+ const gid=Math.random().toString(36).slice(2,10);
+ return new Promise((ok,no)=>{
+  const cl=[];let done=0,busy=0,pend=0,tt=0;
+  const stopAll=keep=>cl.forEach(f=>f(keep));
+  const win=(l,keep)=>{if(done)return;done=1;clearTimeout(tt);stopAll(keep);ok(l)};
+  const chk=()=>{if(!done&&pend<=0){done=1;clearTimeout(tt);stopAll(null);no(new Error(busy?'busy':'fail'))}};
+  const chan=()=>{pend++;let ended=0;return()=>{if(ended)return;ended=1;pend--;chk()}};
+  tt=setTimeout(()=>{if(done)return;done=1;stopAll(null);no(new Error(busy?'busy':'timeout'))},ms);
+  if(NET!=='peer')BROKERS.forEach(u=>{
+   const key='relay '+brName(u),end=chan();
+   const mq=Mq(u);let tm=0,won=0;nstat(key,'…');
+   cl.push(keep=>{clearInterval(tm);if(keep!==mq)mq.close()});
+   mq.onclose=()=>{if(!won)nstat(key,'✗');end()};
+   mq.ready.then(()=>mq.sub(TOP+code+'/g/'+gid)).then(()=>{
+    nstat(key,'ждём ответ');
+    const hi=()=>mq.pub(TOP+code+'/h',JSON.stringify({t:'hello',g:gid}));hi();tm=setInterval(hi,900);
+   }).catch(()=>mq.close());
+   mq.onmsg=(t,s)=>{
+    let x;try{x=JSON.parse(s)}catch(e){return}
+    if(!x)return;
+    if(x.t==='busy'){busy=1;nstat(key,'занято');mq.close()}
+    else if(x.t==='ack'&&!done){
+     won=1;nstat(key,'✓');
+     const l=Link('relay',y=>mq.pub(TOP+code+'/h',JSON.stringify({g:gid,d:y})),()=>mq.close(),'relay '+brName(u));
+     mq.onmsg=(t2,s2)=>{try{l.deliver(JSON.parse(s2))}catch(e){}};
+     mq.onclose=()=>l.dead();
+     win(l,mq);
+    }
+   };
+  });
+  if(NET!=='mqtt'&&o.peer!==false){
+   const end=chan();let p=null;
+   cl.push(keep=>{if(keep!=='peer'&&p){try{p.destroy()}catch(e){}}});
+   nstat('WebRTC','…');
+   loadPeer().then(()=>{
+    if(done)return;
+    p=new Peer(PCFG);
+    p.on('open',()=>{
+     const cn=p.connect(PRE+code,{reliable:true});
+     cn.on('open',()=>{
+      const l=Link('peer',x=>cn.send(x),()=>cn.close(),'WebRTC');
+      cn.on('data',m=>l.deliver(m));cn.on('close',()=>l.dead());cn.on('error',()=>l.dead());
+      nstat('WebRTC','✓');win(l,'peer');
+     });
+     cn.on('error',()=>{nstat('WebRTC','✗');end()});
+    });
+    p.on('error',e=>{nstat('WebRTC','✗ '+(e.type=='peer-unavailable'?'комнаты нет':e.type));end()});
+   }).catch(()=>{nstat('WebRTC','✗ нет библиотеки');end()});
+  }
+  if(!pend)chk();
+ });
+}
+
+/* ---- подключение к уже найденному каналу ---- */
+let hb=0;
+function setup(c){
+ conn=c;linked=0;
+ let last=performance.now();
+ c.onclose=lost;
+ $('ver').textContent='v'+VER+(HT?'.hordtest':'')+' · '+c.label;
+ c.bind(m=>{
+  last=performance.now();
+  if(!m||m.t=='p')return;
+  if(m.t=='bye'){c.dead();return}
+  if(m.t=='busy'){c.close();conn=null;nsOn=1;txt('hint','Комната уже занята другим игроком.')}
+  else if(m.t=='n'){NM[role=='host'?1:0]=String(m.n).slice(0,12);NM[role=='host'?0:1]=ME;linked=1;G=null;show('game');ui();draw()}
+  else if(m.t=='s'){
+   const o=G&&G.s&&!G.over?G:null,n=performance.now();
+   m.G.prev=[];m.G.anim=[];
+   m.G.s.forEach((s,i)=>{
+    const os=o&&o.s[i];
+    if(os&&(os[0][0]!==s[0][0]||os[0][1]!==s[0][1])){m.G.prev[i]=os.map(c=>c.slice());m.G.anim[i]=n}
+    else{m.G.prev[i]=o&&o.prev?o.prev[i]:undefined;m.G.anim[i]=o&&o.anim?o.anim[i]:0}
+   });
+   if(m.G.mu)m.G.mu=m.G.mu.map(a=>a.map(s=>({m:s.m,e:0})));
+   G=m.G;draw();ui();
+  }
+  else if(role=='host'&&m.t=='d'&&G)turn(1,m.v[0],m.v[1]);
+  else if(role=='host'&&m.t=='m'&&G)choose(1,m.k,m.m);
+  else if(role=='host'&&m.t=='dash'&&G)dashPlayer(1);
+  else if(role=='host'&&m.t=='admin'&&G)adminApply(m.action,m.target,m.slot,m.mutation,m.amount);
+  else if(role=='host'&&m.t=='r')start();
+ });
+ c.send({t:'n',n:ME});
+ clearInterval(hb);
+ hb=setInterval(()=>{
+  if(!c.open){clearInterval(hb);return}
+  c.send({t:'p'});
+  if(performance.now()-last>12000){clearInterval(hb);c.dead()}
+ },2000);
+}
+function lost(){stopAll();clearInterval(hb);conn=null;txt('st','Соединение потеряно. Нажмите «Выйти»');txt('hint','Соединение потеряно.');$('go').hidden=true}
+
+addEventListener('pagehide',()=>{if(conn&&conn.open)try{conn.send({t:'bye'})}catch(e){}});
+
+/* быстрый поиск: по очереди то ждём соперника, то стучимся к нему (только relay) */
 function quick(){
-if(!window.Peer)return txt('mh','Не загрузился PeerJS. Проверьте интернет.');
-show('net');$('out').hidden=$('cp').hidden=$('in').hidden=$('ok').hidden=true;slot(0);
-}
-function slot(k){
-txt('hint','Ищем соперника…');linked=0;conn=null;
-if(k>5)return txt('hint','Сейчас все комнаты заняты. Попробуйте чуть позже.');
-const id=PRE+'q'+k;if(peer)peer.destroy();const p=peer=new Peer(id);
-p.on('open',()=>{role='host';txt('hint','Ждём соперника… Он найдёт вас сам.')});
-p.on('connection',c=>{
-if(conn){try{c.send({t:'busy'})}catch(e){};setTimeout(()=>{try{c.close()}catch(e){}},300)}
-else setup(c);
-});
-p.on('error',e=>{
-if(e.type!='unavailable-id')return txt('hint','Нет связи с сервером ('+e.type+')');
-p.destroy();const q=peer=new Peer();
-q.on('open',()=>{role='guest';txt('hint','Подключаемся…');
-setup(q.connect(id,{reliable:true}),()=>slot(k+1));
-setTimeout(()=>{if(!linked&&peer==q)slot(k+1)},10000)});
-q.on('error',x=>x.type=='peer-unavailable'?slot(k):txt('hint','Нет связи с сервером ('+x.type+')'));
-});
+ show('net');$('out').hidden=$('cp').hidden=$('in').hidden=$('ok').hidden=true;
+ nsReset('Ищем соперника…');
+ let bad=0;
+ (async()=>{
+  while(!conn){
+   try{const l=await dial('QM',1800,{peer:false});if(conn){l.close();return}role='guest';setup(l);return}catch(e){}
+   if(conn)return;
+   let okc=0;
+   const got=await new Promise(res=>{
+    const ctl=listen('QM',l=>res(l),()=>{okc=1});
+    setTimeout(()=>{if(!ctl.win){ctl.halt();res(null)}},2200+rnd(2800));
+   });
+   if(got){role='host';setup(got);return}
+   bad=okc?0:bad+1;
+   if(bad>=2)nsHead='Нет связи с серверами поиска. Проверьте интернет или создайте комнату по коду.';else nsHead='Ищем соперника…';
+   renderNS();
+  }
+ })();
 }
 function hostRoom(){
-if(!window.Peer)return txt('hint','Не загрузился PeerJS. Проверьте интернет.');
-role='host';show('net');$('out').hidden=$('cp').hidden=false;$('in').hidden=$('ok').hidden=true;$('out').value='';txt('hint','Создаю комнату…');
-const code=Array.from({length:5},()=>AL[rnd(AL.length)]).join('');
-if(peer)peer.destroy();peer=new Peer(PRE+code);
-peer.on('open',()=>{$('out').value=code;txt('hint','Отправьте этот код другу. Игра начнётся, когда он войдёт.')});
-peer.on('connection',c=>{
-if(conn){try{c.send({t:'busy'})}catch(e){};setTimeout(()=>{try{c.close()}catch(e){}},300)}
-else setup(c);
-});
-peer.on('error',e=>e.type=='unavailable-id'?hostRoom():txt('hint','Нет связи с сервером ('+e.type+')'));
+ role='host';show('net');$('out').hidden=$('cp').hidden=false;$('in').hidden=$('ok').hidden=true;$('out').value='';
+ nsReset('Создаю комнату…');
+ const code=Array.from({length:5},()=>AL[rnd(AL.length)]).join('');
+ listen(code,l=>{role='host';setup(l)},()=>{if(!$('out').value){$('out').value=code;nsHead='Отправьте этот код другу. Игра начнётся, когда он войдёт.';renderNS()}});
+ setTimeout(()=>{if(!$('out').value&&!conn){nsHead='Не удаётся связаться ни с одним сервером. Проверьте интернет.';renderNS()}},12000);
 }
-function joinRoom(){
-if(!window.Peer)return txt('hint','Не загрузился PeerJS. Проверьте интернет.');
-const code=$('in').value.trim().toUpperCase();if(code.length<5)return txt('hint','Введите 5 символов кода.');
-txt('hint','Подключаюсь…');if(peer)peer.destroy();peer=new Peer();
-peer.on('open',()=>{role='guest';setup(peer.connect(PRE+code,{reliable:true}))});
-peer.on('error',e=>txt('hint',e.type=='peer-unavailable'?'Комната не найдена. Проверьте код.':'Нет связи с сервером ('+e.type+')'));
+let joining=0;
+async function joinRoom(){
+ const code=$('in').value.trim().toUpperCase();
+ if(!CODE_RE.test(code)){nsOn=1;nsReset('Введите 5 символов кода (буквы и цифры).');return}
+ if(joining)return;joining=1;
+ nsReset('Подключаюсь…');
+ try{const l=await dial(code,JT);role='guest';setup(l)}
+ catch(e){nsHead=e.message=='busy'?'Комната уже занята другим игроком.':'Не удалось подключиться: комнаты с таким кодом нет (или друг её закрыл), либо нет связи с серверами. Проверьте код и попросите друга создать комнату заново.';renderNS()}
+ joining=0;
 }
 $('b1').onclick=()=>{role='solo';show('game');start()};
 $('b2').onclick=()=>{if(ME=nk())hostRoom()};
@@ -431,105 +631,125 @@ const MUTS=[['💉','Adrenaline'],['🧬','Metabolic'],['⚪','Albinon'],['💚'
 const mutOn=i=>!!(G&&G.mu&&G.mu[i]&&G.mu[i].some(s=>s.m>=0));
 let pick=-1,pendingMut=-1,trSig='';
 function choose(i,k,m){
-if(!G||G.over||!G.mu||!(k>=0&&k<4)||!(m>=0&&m<MUTS.length))return;
-const a=G.mu[i];if(!a||G.mx[i]<TH[k]||a[k].m>=0||a.some(s=>s.m==m))return;
-a[k]={m,e:0};tx({t:'s',G:snap()});ui();
+ if(!G||G.over||!G.mu||!(k>=0&&k<4)||!(m>=0&&m<MUTS.length))return;
+ const a=G.mu[i];if(!a||G.mx[i]<TH[k]||a[k].m>=0||a.some(s=>s.m==m))return;
+ a[k]={m,e:0};tx({t:'s',G:snap()});ui();
 }
+const fmt=ms=>{const s=Math.ceil(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
 function trRender(){
-if($('tr').hidden)return;
-const me=meIdx(),a=G&&G.mu&&G.mu[me];let h;
-if(!a)h='<b>🌳 Древо мутаций</b><p>Сначала начните игру.</p><button type="button" data-x="1">Закрыть</button>';
-else{
-const mx=G.mx[me],used=a.map(s=>s.m);
-if(pick>=0&&(a[pick].m>=0||mx<TH[pick]))pick=-1;
-if(pick>=0&&pendingMut>=0){
-const desc=['Increases snake speed by 40%.','Adds +1 extra segment every time you eat food.','Makes your snake white and increases speed, growth and vision by 10%.','Reduces Dash stamina cost by 50%.'][pendingMut];
-h='<b>'+MUTS[pendingMut][0]+' '+MUTS[pendingMut][1]+'</b><p>'+desc+'</p><p>Мутация будет действовать постоянно, пока её не уберут.</p><button type="button" class="pr" data-confirm="1">Confirm</button><button type="button" data-b="2">Назад</button>';
-}
-else if(pick>=0)h='<b>Слот '+(pick+1)+': выберите мутацию</b><div class="mg">'+MUTS.map(([e,n],m)=>'<button type="button" data-m="'+m+'"'+(used.includes(m)?' disabled':'')+'>'+e+' '+n+'</button>').join('')+'</div><button type="button" data-b="1">Назад</button>';
-else{
-h='<b>🌳 Mutation Tree</b><p>Mutations stay active permanently. Adrenaline: speed ×1.4. Metabolic: +1 extra segment per food. Albinon: white snake, speed/growth/vision ×1.1. Beautiful Endurance: dash cost −50%.</p>';
-a.forEach((s,k)=>{
-if(s.m>=0)h+='<div class="sl on"><span>'+MUTS[s.m][0]+' '+MUTS[s.m][1]+(s.m===0?' · speed ×1.4':s.m===1?' · +1 growth per food':s.m===2?' · white, speed/growth/vision ×1.1':' · dash cost −50%')+'</span><span>активна</span></div>';
-else if(mx<TH[k])h+='<div class="sl off"><span>🔒 Слот '+(k+1)+'</span><span>длина '+TH[k]+'</span></div>';
-else h+='<button type="button" class="sl go" data-k="'+k+'">Слот '+(k+1)+': выбрать мутацию</button>';
-});
-h+='<button type="button" data-x="1">Закрыть</button>';
-}
-}
-if(h!==trSig){trSig=h;$('trb').innerHTML=h}
+ if($('tr').hidden)return;
+ const me=meIdx(),a=G&&G.mu&&G.mu[me];let h;
+ if(!a)h='<b>🌳 Древо мутаций</b><p>Сначала начните игру.</p><button type="button" data-x="1">Закрыть</button>';
+ else{
+  const mx=G.mx[me],used=a.map(s=>s.m);
+  if(pick>=0&&(a[pick].m>=0||mx<TH[pick]))pick=-1;
+  if(pick>=0&&pendingMut>=0){
+   const desc=['Increases snake speed by 40%.','Adds +1 extra segment every time you eat food.','Makes your snake white and increases speed, growth and vision by 10%.','Reduces Dash stamina cost by 50%.'][pendingMut];
+   h='<b>'+MUTS[pendingMut][0]+' '+MUTS[pendingMut][1]+'</b><p>'+desc+'</p><p>Мутация будет действовать постоянно, пока её не уберут.</p><button type="button" class="pr" data-confirm="1">Confirm</button><button type="button" data-b="2">Назад</button>';
+  }
+  else if(pick>=0)h='<b>Слот '+(pick+1)+': выберите мутацию</b><div class="mg">'+MUTS.map(([e,n],m)=>'<button type="button" data-m="'+m+'"'+(used.includes(m)?' disabled':'')+'>'+e+' '+n+'</button>').join('')+'</div><button type="button" data-b="1">Назад</button>'; 
+  else{
+   h='<b>🌳 Mutation Tree</b><p>Mutations stay active permanently. Adrenaline: speed ×1.4. Metabolic: +1 extra segment per food. Albinon: white snake, speed/growth/vision ×1.1. Beautiful Endurance: Dash stamina cost −50%.</p>';
+   a.forEach((s,k)=>{
+    if(s.m>=0)h+='<div class="sl on"><span>'+MUTS[s.m][0]+' '+MUTS[s.m][1]+(s.m===0?' · speed ×1.4':s.m===1?' · +1 growth per food':s.m===2?' · white, speed/growth/vision ×1.1':' · Dash cost −50%')+'</span><span>активна</span></div>';
+    else if(mx<TH[k])h+='<div class="sl off"><span>🔒 Слот '+(k+1)+'</span><span>длина '+TH[k]+'</span></div>';
+    else h+='<button type="button" class="sl go" data-k="'+k+'">Слот '+(k+1)+': выбрать мутацию</button>';
+   });
+   h+='<button type="button" data-x="1">Закрыть</button>';
+  }
+ }
+ if(h!==trSig){trSig=h;$('trb').innerHTML=h}
 }
 const trClose=()=>{$('tr').hidden=true;pick=-1;pendingMut=-1};
 $('tree').onclick=()=>{pick=-1;pendingMut=-1;trSig='';$('tr').hidden=false;trRender()};
 $('tr').onclick=e=>{
-if(e.target===$('tr'))return trClose();
-const t=e.target.closest&&e.target.closest('button');if(!t)return;const d=t.dataset;
-if(d.x)trClose();
-else if(d.b){pendingMut=-1;if(d.b==='1')pick=-1;trRender()}
-else if(d.k!==undefined){pick=+d.k;pendingMut=-1;trRender()}
-else if(d.m!==undefined&&pick>=0){pendingMut=+d.m;trRender()}
-else if(d.confirm!==undefined&&pick>=0&&pendingMut>=0){const k=pick,m=pendingMut;pick=-1;pendingMut=-1;if(role=='guest')tx({t:'m',k,m});else choose(0,k,m);trRender()}
+ if(e.target===$('tr'))return trClose();
+ const t=e.target.closest&&e.target.closest('button');if(!t)return;const d=t.dataset;
+ if(d.x)trClose();
+ else if(d.b){pendingMut=-1;if(d.b==='1')pick=-1;trRender()}
+ else if(d.k!==undefined){pick=+d.k;pendingMut=-1;trRender()}
+ else if(d.m!==undefined&&pick>=0){pendingMut=+d.m;trRender()}
+ else if(d.confirm!==undefined&&pick>=0&&pendingMut>=0){const k=pick,m=pendingMut;pick=-1;pendingMut=-1;if(role=='guest')tx({t:'m',k,m});else choose(0,k,m);trRender()}
 };
 setInterval(trRender,500);
 
-/* ---- админ-панель: на hordtest всегда доступна, на обычном — Ctrl+Q и код GGHJ ---- */
-const ADMIN_CODE='GGHJ';
+/* ---- админ-панель ---- */
+// SHA-256 на чистом JS (crypto.subtle недоступен на http и в части браузеров)
+function sha256(str){
+ const K=[],H0=[];let pc=0;const isP=n=>{for(let i=2;i*i<=n;i++)if(n%i==0)return 0;return 1};
+ const fr=x=>((x-Math.floor(x))*4294967296)|0;
+ for(let n=2;pc<64;n++)if(isP(n)){if(pc<8)H0[pc]=fr(Math.pow(n,.5));K[pc]=fr(Math.pow(n,1/3));pc++}
+ const b=unescape(encodeURIComponent(str)),l=b.length,w=[];
+ for(let i=0;i<l;i++)w[i>>2]|=b.charCodeAt(i)<<(24-(i%4)*8);
+ w[l>>2]|=0x80<<(24-(l%4)*8);w[(((l+8)>>6)<<4)+15]=l*8;
+ let h=H0.slice();const rr=(x,n)=>(x>>>n)|(x<<(32-n));
+ for(let j=0;j<w.length;j+=16){
+  const t=[];let[a,b2,c,d,e,f,g,hh]=h;
+  for(let i=0;i<64;i++){
+   if(i<16)t[i]=w[j+i]|0;else{const x=t[i-15],y=t[i-2];t[i]=(t[i-16]+(rr(x,7)^rr(x,18)^(x>>>3))+t[i-7]+(rr(y,17)^rr(y,19)^(y>>>10)))|0}
+   const t1=(hh+(rr(e,6)^rr(e,11)^rr(e,25))+((e&f)^(~e&g))+K[i]+t[i])|0;
+   const t2=((rr(a,2)^rr(a,13)^rr(a,22))+((a&b2)^(a&c)^(b2&c)))|0;
+   hh=g;g=f;f=e;e=(d+t1)|0;d=c;c=b2;b2=a;a=(t1+t2)|0;
+  }
+  h=[(h[0]+a)|0,(h[1]+b2)|0,(h[2]+c)|0,(h[3]+d)|0,(h[4]+e)|0,(h[5]+f)|0,(h[6]+g)|0,(h[7]+hh)|0];
+ }
+ return h.map(x=>('00000000'+(x>>>0).toString(16)).slice(-8)).join('');
+}
+// пароль админ-панели хранится только как соленый хеш (5000 раундов SHA-256)
+const ADMIN_SALT='zmeyka-ap-v1:',ADMIN_HASH='9114a6249c63fd4553b4e5caff9e2834be72768495238dcee0aca81f89c03298';
+const apHash=p=>{let d=ADMIN_SALT+p;for(let i=0;i<5000;i++)d=sha256(d);return d};
 let adminUnlocked=HT;
 const adminBox=$('adminBox');
-// Кнопка видна только на тестовой сборке
-$('adminOpen').hidden=!HT;
 function adminRender(){
-const players=G?G.n:1;
-adminBox.innerHTML=adminUnlocked
-? '<b>Админ-панель</b><p>Изменения применяются сразу. В онлайн-игре состояние меняет хост.</p>'
-+'<label>Игрок<select id="admTarget">'+Array.from({length:players},(_,i)=>'<option value="'+i+'">'+esc(NM[i]||(i===meIdx()?'Вы':'Игрок '+(i+1)))+'</option>').join('')+'</select></label>'
-+'<label>Количество длины<input id="admAmount" type="number" min="1" max="10000" value="10"></label>'
-+'<div class="adminRow"><button id="admAdd">+ Длина</button><button id="admRemove">− Длина</button></div>'
-+'<label>Слот мутации<select id="admSlot"><option value="0">Слот 1</option><option value="1">Слот 2</option><option value="2">Слот 3</option><option value="3">Слот 4</option></select></label>'
-+'<label>Мутация<select id="admMutation">'+MUTS.map((m,i)=>'<option value="'+i+'">'+m[0]+' '+m[1]+'</option>').join('')+'</select></label>'
-+'<div class="adminRow"><button id="admGive">Выдать мутацию</button><button id="admTake">Убрать мутацию</button></div>'
-+'<button id="admClose">Закрыть</button>'
-: '<b>Вход в админ-панель</b><p>Введите код доступа.</p><input id="admCode" type="password" autocomplete="off" placeholder="Код доступа"><button id="admLogin" class="pr">Войти</button><button id="admClose">Закрыть</button><p id="admError"></p>';
-const $a=id=>adminBox.querySelector('#'+id);
-$a('admClose').onclick=()=>{$('admin').hidden=true};
-if(!adminUnlocked){
-$a('admLogin').onclick=()=>{if($a('admCode').value===ADMIN_CODE){adminUnlocked=true;adminRender()}else $a('admError').textContent='Неверный код'};
-return;
-}
-const act=(action)=>{
-if(!G||G.over)return;
-const target=+$a('admTarget').value,slot=+$a('admSlot').value,mutation=+$a('admMutation').value;
-const amount=Math.max(1,Math.min(10000,Math.floor(+$a('admAmount').value||1)));
-if(role==='guest')tx({t:'admin',action,target:1-target,slot,mutation,amount});
-else adminApply(action,target,slot,mutation,amount);
-};
-$a('admAdd').onclick=()=>act('add');$a('admRemove').onclick=()=>act('remove');
-$a('admGive').onclick=()=>act('give');$a('admTake').onclick=()=>act('take');
+ const players=G?G.n:1;
+ adminBox.innerHTML=adminUnlocked
+ ? '<b>Админ-панель</b><p>Изменения применяются сразу. В онлайн-игре состояние меняет хост.</p>'
+ +'<label>Игрок<select id="admTarget">'+Array.from({length:players},(_,i)=>'<option value="'+i+'">'+esc(NM[i]||(i===meIdx()?'Вы':'Игрок '+(i+1)))+'</option>').join('')+'</select></label>'
+ +'<label>Количество длины<input id="admAmount" type="number" min="1" max="10000" value="10"></label>'
+ +'<div class="adminRow"><button id="admAdd">+ Длина</button><button id="admRemove">− Длина</button></div>'
+ +'<label>Слот мутации<select id="admSlot"><option value="0">Слот 1</option><option value="1">Слот 2</option><option value="2">Слот 3</option><option value="3">Слот 4</option></select></label>'
+ +'<label>Мутация<select id="admMutation">'+MUTS.map((m,i)=>'<option value="'+i+'">'+m[0]+' '+m[1]+'</option>').join('')+'</select></label>'
+ +'<div class="adminRow"><button id="admGive">Выдать мутацию</button><button id="admTake">Убрать мутацию</button></div>'
+ +'<button id="admClose">Закрыть</button>'
+ : '<b>Вход в админ-панель</b><p>Введите код доступа.</p><input id="admCode" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Код доступа"><button id="admLogin" class="pr">Войти</button><button id="admClose">Закрыть</button><p id="admError"></p>';
+ const $a=id=>adminBox.querySelector('#'+id);
+ $a('admClose').onclick=()=>{$('admin').hidden=true};
+ if(!adminUnlocked){
+  $a('admLogin').onclick=()=>{if(apHash($a('admCode').value.trim().toUpperCase())===ADMIN_HASH){adminUnlocked=true;adminRender()}else $a('admError').textContent='Неверный код'};
+  $a('admCode').onkeydown=e=>{e.stopPropagation();if(e.key==='Enter')$a('admLogin').click()};
+  return;
+ }
+ const act=(action)=>{
+  if(!G||G.over)return;
+  const target=+$a('admTarget').value,slot=+$a('admSlot').value,mutation=+$a('admMutation').value;
+  const amount=Math.max(1,Math.min(10000,Math.floor(+$a('admAmount').value||1)));
+  if(role==='guest')tx({t:'admin',action,target:1-target,slot,mutation,amount});
+  else adminApply(action,target,slot,mutation,amount);
+ };
+ $a('admAdd').onclick=()=>act('add');$a('admRemove').onclick=()=>act('remove');
+ $a('admGive').onclick=()=>act('give');$a('admTake').onclick=()=>act('take');
 }
 function adminApply(action,target,slot,mutation,amount){
-if(!G||!G.s[target])return;
-const snake=G.s[target];
-if(action==='add'){
-for(let n=0;n<amount;n++){const tail=snake[snake.length-1],prev=snake[Math.max(0,snake.length-2)];snake.push([tail[0]+(tail[0]-prev[0]),tail[1]+(tail[1]-prev[1])]);}
-G.mx[target]=Math.max(G.mx[target],snake.length);
-}else if(action==='remove'){
-snake.splice(Math.max(3,snake.length-amount));G.mx[target]=Math.max(G.mx[target],snake.length);
-}else if(action==='give'){
-G.mu[target][slot]={m:mutation,e:0};
-}else if(action==='take'){
-G.mu[target][slot]={m:-1,e:0};
+ if(!G||!G.s[target])return;
+ const snake=G.s[target];
+ if(action==='add'){
+  for(let n=0;n<amount;n++){const tail=snake[snake.length-1],prev=snake[Math.max(0,snake.length-2)];snake.push([tail[0]+(tail[0]-prev[0]),tail[1]+(tail[1]-prev[1])]);}
+  G.mx[target]=Math.max(G.mx[target],snake.length);
+ }else if(action==='remove'){
+  snake.splice(Math.max(3,snake.length-amount));G.mx[target]=Math.max(G.mx[target],snake.length);
+ }else if(action==='give'){
+  G.mu[target][slot]={m:mutation,e:0};
+ }else if(action==='take'){
+  G.mu[target][slot]={m:-1,e:0};
+ }
+ tx({t:'s',G:snap()});draw();ui();
 }
-tx({t:'s',G:snap()});draw();ui();
-}
-// Кнопка (hordtest)
-$('adminOpen').onclick=()=>{$('admin').hidden=false;adminRender()};
-// Ctrl+Q — на обычном сайте открывает панель, где нужно ввести GGHJ
+$('adminOpen').onclick=()=>{$('admin').hidden=false;adminRender();setTimeout(()=>{const f=adminBox.querySelector('#admCode');if(f)f.focus()},0)};
 addEventListener('keydown',e=>{
-if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&!e.metaKey&&e.code==='KeyQ'){
-e.preventDefault();
-$('admin').hidden=false;adminRender();
-setTimeout(()=>{const f=adminBox.querySelector('#admCode');if(f)f.focus()},0);
-}
+ if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&e.code==='KeyQ'){
+  e.preventDefault();$('admin').hidden=false;adminRender();
+  setTimeout(()=>{const field=adminBox.querySelector('#admCode');if(field)field.focus()},0);
+ }
 });
 $('admin').onclick=e=>{if(e.target===$('admin'))$('admin').hidden=true};
 
@@ -537,16 +757,21 @@ $('admin').onclick=e=>{if(e.target===$('admin'))$('admin').hidden=true};
 /* ---- управление ---- */
 function dir(v){if(role=='guest')tx({t:'d',v});else if(G&&!G.over)turn(0,v[0],v[1])}
 const K={ArrowUp:[0,-1],KeyW:[0,-1],ArrowDown:[0,1],KeyS:[0,1],ArrowLeft:[-1,0],KeyA:[-1,0],ArrowRight:[1,0],KeyD:[1,0]};
-addEventListener('keydown',e=>{const v=K[e.code];if(v&&!$('game').hidden){e.preventDefault();dir(v)}});
+addEventListener('keydown',e=>{if(typing(e))return;const v=K[e.code];if(v&&!$('game').hidden){e.preventDefault();dir(v)}});
 const J=$('joy'),Kn=$('knob');let jp=null,jd='';
 function jmove(e){
-const r=J.getBoundingClientRect(),R=r.width/2;let dx=e.clientX-r.left-R,dy=e.clientY-r.top-R;
-const m=Math.hypot(dx,dy),L=R*.55;if(m>L){dx*=L/m;dy*=L/m}
-Kn.style.transform='translate('+dx+'px,'+dy+'px)';
-if(m>R*.25){const v=[dx/m,dy/m];const key=[Math.round(v[0]*100),Math.round(v[1]*100)].join(',');if(key!==jd){jd=key;dir(v)}}
+ const r=J.getBoundingClientRect(),R=r.width/2;let dx=e.clientX-r.left-R,dy=e.clientY-r.top-R;
+ const m=Math.hypot(dx,dy),L=R*.55;if(m>L){dx*=L/m;dy*=L/m}
+ Kn.style.transform='translate('+dx+'px,'+dy+'px)';
+ if(m>R*.25){const v=[dx/m,dy/m];const key=[Math.round(v[0]*100),Math.round(v[1]*100)].join(',');if(key!==jd){jd=key;dir(v)}}
 }
 J.onpointerdown=e=>{jp=e.pointerId;try{J.setPointerCapture(jp)}catch(x){}Kn.style.transition='';jmove(e)};
 J.onpointermove=e=>{if(e.pointerId==jp)jmove(e)};
 J.onpointerup=J.onpointercancel=()=>{jp=null;jd='';Kn.style.transition='transform .12s';Kn.style.transform=''};
 let t0;cv.ontouchstart=e=>{t0=e.touches[0]};
-cv.ontouchend=e=>{if(!t0)return;const t=e.changedTouches[0],dx=t.clientX-t0.clientX,dy=t.clientY-t0.clientY;if(Math.hypot(dx,dy)>20)dir([dx,dy]);
+cv.ontouchend=e=>{if(!t0)return;const t=e.changedTouches[0],dx=t.clientX-t0.clientX,dy=t.clientY-t0.clientY;if(Math.hypot(dx,dy)>20)dir([dx,dy]);t0=null};
+draw();requestAnimationFrame(animate);
+
+</script>
+</body>
+</html>
